@@ -2,6 +2,61 @@
 
 All notable changes to ShipmentScope are recorded here.
 
+## 2026-07-03 — Production-readiness pass
+
+### Added
+- **Security headers** on every response: Content-Security-Policy,
+  X-Frame-Options, X-Content-Type-Options, Referrer-Policy,
+  Permissions-Policy, and Strict-Transport-Security (only added once the
+  connection is actually detected as HTTPS, via `X-Forwarded-Proto` or
+  `NODE_ENV=production`).
+- Session cookie gets the `Secure` flag automatically under the same
+  HTTPS detection — never sent over plain HTTP by mistake.
+- **Gzip compression** for the main HTML page and JSON API responses when
+  the client supports it (the 215KB dashboard now transfers as ~52KB).
+- A 15MB cap on request bodies, so a huge/slow POST can't exhaust server
+  memory.
+- Process-level crash guards (`uncaughtException`/`unhandledRejection`) —
+  an unexpected error no longer takes down every logged-in user's
+  session along with the whole server.
+- `/robots.txt`, `og:image`/`og:type`/`theme-color` meta tags.
+- Basic keyboard accessibility: the ~65 `<div onclick="...">` elements
+  used as buttons throughout the UI (order cards, filter chips, category
+  picker, accent swatches) are now Tab-focusable and Enter/Space
+  activate them, via a small MutationObserver-driven enhancer rather
+  than rewriting every render function.
+- `playwright` as a dev dependency + a `test` script in `package.json`
+  (`node test-sync.js`), for real end-to-end browser verification going
+  forward.
+
+### Fixed
+- Two silently-shadowed duplicate function definitions in the frontend
+  (`monthSpend`, `hexToRgba`) — harmless in practice since both copies
+  were behaviorally identical, but a real bug risk if they'd ever drifted
+  apart.
+- The new Content-Security-Policy initially blocked the Tabler icon
+  webfont (hosted on jsdelivr) — caught via a live Playwright run, not
+  just code review, and fixed before it shipped.
+
+### Changed
+- Removed 4.7MB of unreferenced source PNGs from git tracking (kept on
+  disk, gitignored — not deleted).
+- Resized `product-box.png`/`product-card.png`/`logo.png` to match how
+  large they're actually displayed (30-88px) instead of shipping
+  1024×1024 originals: 1.1-1.4MB → ~17-20KB each, `logo.png` 151KB →
+  32KB.
+- Removed four stale `*.backup-*.html` files — real git history now
+  serves that purpose.
+- This repository is now its own git repo (previously nested, untracked,
+  inside the parent `~/Desktop` folder alongside unrelated personal
+  files) — all history from today forward lives here.
+
+Verified: `test-sync.js` (27/27 recall, 5/5 precision, 27/27 fields, plus
+the email-ID dedup regression) and a full Playwright run through signup,
+every tab, adding an order, the order detail view, Settings/accent color,
+the command palette, keyboard shortcuts, and account deletion — zero
+console errors across all 20 steps.
+
 ## 2026-07-01 (final round) — Abuse protection + self-service account deletion
 
 ### Added

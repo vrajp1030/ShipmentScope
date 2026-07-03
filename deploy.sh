@@ -14,7 +14,9 @@ REMOTE_DIR="${DEPLOY_REMOTE_DIR:-/home/ubuntu/shipmentscope}"
 SSH_OPTS="-o StrictHostKeyChecking=accept-new"
 
 echo "Sending files..."
+ssh $SSH_OPTS -i "$KEY" "$SERVER" "mkdir -p $REMOTE_DIR/assets"
 scp $SSH_OPTS -i "$KEY" server.js "PokéOrders.html" admin.html package.json "$SERVER:$REMOTE_DIR/"
+scp $SSH_OPTS -i "$KEY" assets/logo.png assets/product-box.png assets/product-card.png "$SERVER:$REMOTE_DIR/assets/"
 
 echo "Renaming and restarting on the server..."
 ssh $SSH_OPTS -i "$KEY" "$SERVER" "cd $REMOTE_DIR && mv 'PokéOrders.html' app.html && sed -i 's/PokéOrders\.html/app.html/g' server.js && npm install --production && pm2 restart shipmentscope"
