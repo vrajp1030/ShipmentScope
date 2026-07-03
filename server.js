@@ -843,6 +843,26 @@ li{margin-bottom:6px;}
     return;
   }
 
+  // Frontend CSS/JS, split out of the single HTML file for maintainability.
+  // No cache-busting filename/version scheme exists yet, so no-cache (not
+  // a long max-age) — always revalidate rather than risk a stale asset
+  // surviving a deploy.
+  if(req.method==='GET'&&(req.url==='/styles.css'||req.url==='/app.js')){
+    const isCss=req.url==='/styles.css';
+    const p=path.join(__dirname,isCss?'styles.css':'app.js');
+    if(!fs.existsSync(p)){res.writeHead(404);res.end('Not found');return;}
+    const contentType=isCss?'text/css; charset=utf-8':'application/javascript; charset=utf-8';
+    const acceptsGzip=/gzip/.test(req.headers['accept-encoding']||'');
+    if(acceptsGzip){
+      res.writeHead(200,{'Content-Type':contentType,'Cache-Control':'no-cache','Content-Encoding':'gzip','Vary':'Accept-Encoding'});
+      fs.createReadStream(p).pipe(zlib.createGzip()).pipe(res);
+    } else {
+      res.writeHead(200,{'Content-Type':contentType,'Cache-Control':'no-cache'});
+      fs.createReadStream(p).pipe(res);
+    }
+    return;
+  }
+
   // Serve app — always, regardless of login state. The client-side JS decides
   // whether to show the login screen or the dashboard (calls /api/auth/me).
   if(req.method==='GET'&&req.url==='/'){
