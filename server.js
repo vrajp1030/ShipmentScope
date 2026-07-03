@@ -5,8 +5,16 @@ const { simpleParser } = require('mailparser');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 
 const PORT = 3876;
+
+// A single unexpected throw outside a route's own try/catch used to kill the
+// whole process (everyone's sessions with it, since sessions are in-memory).
+// Log and keep serving instead — routes are already defensively try/catch'd,
+// so this is a last-resort net, not a substitute for that.
+process.on('uncaughtException', (err) => { console.error('Uncaught exception:', err); });
+process.on('unhandledRejection', (err) => { console.error('Unhandled rejection:', err); });
 
 // ── WHITELISTED STORES ───────────────────────────────────────────
 const ALLOWED_STORES = [
@@ -588,20 +596,72 @@ function startAutoPoll() {
 }
 
 // ── HTTP SERVER ──────────────────────────────────────────────────
+// Wildcard is safe here: no Access-Control-Allow-Credentials header is ever
+// sent, so browsers refuse to attach the session cookie to any cross-origin
+// request regardless of this origin value (fetch/XHR spec, not app logic) —
+// and SameSite=Lax on the cookie blocks it a second way besides.
 const CORS = {
   'Access-Control-Allow-Origin':'*',
   'Access-Control-Allow-Methods':'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers':'Content-Type',
 };
 
-function sendJSON(res, data, status=200){
-  res.writeHead(status,{'Content-Type':'application/json',...CORS});
-  res.end(JSON.stringify(data));
+// Baseline hardening headers applied to EVERY response (see the res.writeHead
+// patch below) — CSP allows 'unsafe-inline' for script/style because the
+// frontend is a single HTML file with inline <script>/<style> by design; the
+// real protections here are frame-ancestors/object-src/base-uri, which stop
+// clickjacking and injected-tag attacks without requiring a frontend rewrite.
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+};
+function isSecureRequest(req){
+  return req.headers['x-forwarded-proto']==='https' || process.env.NODE_ENV==='production';
+}
+function sessionCookie(token, maxAgeSeconds, req){
+  const secure = isSecureRequest(req) ? '; Secure' : '';
+  return `sc_session=${token}; HttpOnly; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax${secure}`;
 }
 
+function sendJSON(res, data, status=200){
+  const body = Buffer.from(JSON.stringify(data));
+  const headers = {'Content-Type':'application/json', ...CORS};
+  // res.req is Node's own back-reference from ServerResponse to its request —
+  // lets every existing sendJSON(res, data, status) call site gzip without
+  // being rewritten to also pass req through.
+  const acceptEncoding = (res.req && res.req.headers['accept-encoding']) || '';
+  if(/gzip/.test(acceptEncoding) && body.length > 512){
+    const gz = zlib.gzipSync(body);
+    res.writeHead(status, {...headers, 'Content-Encoding':'gzip', 'Vary':'Accept-Encoding'});
+    res.end(gz);
+  } else {
+    res.writeHead(status, headers);
+    res.end(body);
+  }
+}
+
+// Caps request bodies at 15MB (generous for an orders backup with embedded
+// email HTML/text) so a huge/slow POST can't be used to exhaust memory.
+const MAX_BODY_BYTES = 15 * 1024 * 1024;
 function readBody(req){
-  return new Promise(resolve=>{
-    let b='';req.on('data',c=>b+=c);req.on('end',()=>resolve(b));
+  return new Promise((resolve, reject)=>{
+    let chunks=[], total=0, done=false;
+    req.on('data', c=>{
+      if(done) return;
+      total += c.length;
+      if(total > MAX_BODY_BYTES){
+        done = true;
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', ()=>{ if(!done) resolve(Buffer.concat(chunks).toString('utf8')); });
+    req.on('error', reject);
   });
 }
 
@@ -638,11 +698,24 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 function isAdminAuthorized(req) { return !!ADMIN_PASSWORD && checkBasicAuth(req, ADMIN_PASSWORD); }
 
 const server = http.createServer(async (req, res) => {
+  res.req = req; // Node normally sets this itself once headers flush; set it early so sendJSON's gzip check can read req.headers before then.
+  const origWriteHead = res.writeHead.bind(res);
+  res.writeHead = (status, headers) => {
+    const extra = isSecureRequest(req) ? {...SECURITY_HEADERS, 'Strict-Transport-Security':'max-age=63072000; includeSubDomains'} : SECURITY_HEADERS;
+    return origWriteHead(status, {...extra, ...headers});
+  };
+
   if(req.method==='OPTIONS'){res.writeHead(204,CORS);res.end();return;}
 
   if(!isAuthorized(req)){
     res.writeHead(401, {'WWW-Authenticate':'Basic realm="ShipmentScope"', 'Content-Type':'text/plain'});
     res.end('Authentication required.');
+    return;
+  }
+
+  if(req.method==='GET'&&req.url==='/robots.txt'){
+    res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8'});
+    res.end('User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n');
     return;
   }
 
@@ -774,7 +847,16 @@ li{margin-bottom:6px;}
   // whether to show the login screen or the dashboard (calls /api/auth/me).
   if(req.method==='GET'&&req.url==='/'){
     const p=path.join(__dirname,'PokéOrders.html');
-    if(fs.existsSync(p)){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});fs.createReadStream(p).pipe(res);}
+    if(fs.existsSync(p)){
+      const acceptsGzip = /gzip/.test(req.headers['accept-encoding']||'');
+      if(acceptsGzip){
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Content-Encoding':'gzip','Vary':'Accept-Encoding'});
+        fs.createReadStream(p).pipe(zlib.createGzip()).pipe(res);
+      } else {
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
+        fs.createReadStream(p).pipe(res);
+      }
+    }
     else{res.writeHead(404);res.end('PokéOrders.html not found');}
     return;
   }
@@ -826,7 +908,7 @@ li{margin-bottom:6px;}
         if(legacyOrders.length) saveOrdersFor(user.id, legacyOrders);
       }
       const token=createSession(user.id);
-      res.setHeader('Set-Cookie',`sc_session=${token}; HttpOnly; Path=/; Max-Age=${30*24*60*60}; SameSite=Lax`);
+      res.setHeader('Set-Cookie',sessionCookie(token, 30*24*60*60, req));
       sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
@@ -845,7 +927,7 @@ li{margin-bottom:6px;}
       const users=loadUsers();
       const idx=users.findIndex(u=>u.id===user.id);
       if(idx>-1){users[idx].lastLoginAt=new Date().toISOString();saveUsers(users);}
-      res.setHeader('Set-Cookie',`sc_session=${token}; HttpOnly; Path=/; Max-Age=${30*24*60*60}; SameSite=Lax`);
+      res.setHeader('Set-Cookie',sessionCookie(token, 30*24*60*60, req));
       sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
@@ -854,7 +936,7 @@ li{margin-bottom:6px;}
   if(req.method==='POST'&&req.url==='/api/auth/logout'){
     const token=parseCookies(req.headers.cookie)['sc_session'];
     if(token) sessions.delete(token);
-    res.setHeader('Set-Cookie','sc_session=; HttpOnly; Path=/; Max-Age=0');
+    res.setHeader('Set-Cookie',sessionCookie('', 0, req));
     sendJSON(res,{ok:true});
     return;
   }
@@ -974,7 +1056,7 @@ li{margin-bottom:6px;}
       try{fs.unlinkSync(accountsFileFor(userId));}catch(_){}
       delete newOrdersBuffers[userId];
       for(const [tok,sess] of sessions){ if(sess.userId===userId) sessions.delete(tok); }
-      res.setHeader('Set-Cookie','sc_session=; HttpOnly; Path=/; Max-Age=0');
+      res.setHeader('Set-Cookie',sessionCookie('', 0, req));
       sendJSON(res,{ok:true});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;

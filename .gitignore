@@ -5,3 +5,8 @@ data/
 .DS_Store
 orders.json
 .claude/
+
+# Source/original assets not served by the app (kept on disk for future
+# re-exports, not worth the repo weight — see assets/*.png served copies).
+assets/logo-source-4k.png
+assets/logo-alt.png

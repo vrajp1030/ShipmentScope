@@ -4,10 +4,14 @@
   "description": "ShipmentScope local IMAP sync server",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test-sync.js"
   },
   "dependencies": {
     "imapflow": "^1.0.162",
     "mailparser": "^3.7.1"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
   }
 }

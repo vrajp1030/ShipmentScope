@@ -5,9 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>ShipmentScope</title>
 <meta name="description" content="ShipmentScope scans your inbox and turns order confirmation emails into one clean dashboard — track every Pokémon order, every store, automatically."/>
+<meta name="theme-color" content="#05060f"/>
+<meta property="og:type" content="website"/>
 <meta property="og:title" content="ShipmentScope"/>
 <meta property="og:description" content="Track every order. Every store. Automatically."/>
+<meta property="og:image" content="/assets/logo.png"/>
 <link rel="icon" type="image/png" href="/assets/logo.png"/>
+<link rel="apple-touch-icon" href="/assets/logo.png"/>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -1550,6 +1554,13 @@ function animateNumber(id,target,opts){
 }
 
 // ── STATS ────────────────────────────────────────────────────────
+function monthSpend(m,y){
+  return orders.filter(o=>{
+    if(!o.date||o.status==='cancelled')return false;
+    const d=new Date(o.date+'T00:00:00');
+    return d.getMonth()===m&&d.getFullYear()===y;
+  }).reduce((s,o)=>s+(o.price||0),0);
+}
 function rStats(){
   const t=orders.length;
   const od=orders.filter(o=>o.status==='ordered'||o.status==='preorder').length;
@@ -1574,14 +1585,7 @@ function rStats(){
   const nb=$('nb-cancelled');
   if(cx>0){nb.textContent=cx;nb.style.display='inline';}else nb.style.display='none';
 
-  // Monthly sidebar stats
-  function monthSpend(m,y){
-    return orders.filter(o=>{
-      if(!o.date||o.status==='cancelled')return false;
-      const d=new Date(o.date+'T00:00:00');
-      return d.getMonth()===m&&d.getFullYear()===y;
-    }).reduce((s,o)=>s+(o.price||0),0);
-  }
+  // Monthly sidebar stats (monthSpend is defined once, top-level, above)
   // Rolling last-3-months widget (instead of hardcoded months) so it never goes stale.
   const now=new Date();
   let periodTotal=0,prevPeriodTotal=0;
@@ -2559,7 +2563,7 @@ function computeCardStats(){
 
   // Rolling month-over-month spend trend — never hardcoded, and never shown
   // unless there's a real prior-month baseline to compare against.
-  function monthSpend(m,y){return orders.filter(o=>{if(!o.date||o.status==='cancelled')return false;const d=new Date(o.date+'T00:00:00');return d.getMonth()===m&&d.getFullYear()===y;}).reduce((s,o)=>s+(o.price||0),0);}
+  // (monthSpend is defined once, near the sidebar stats code above.)
   const now=new Date();
   const prev=new Date(now.getFullYear(),now.getMonth()-1,1);
   const thisMonth=monthSpend(now.getMonth(),now.getFullYear());
@@ -2900,7 +2904,6 @@ function notifyDesktop(title,body){
 
 // ── APPEARANCE: accent color ──────────────────────────────────────
 const ACCENT_COLORS=[{name:'Iris',hex:'#663af3'},{name:'Ember',hex:'#e46d4c'},{name:'Azure',hex:'#027dea'},{name:'Mint',hex:'#269684'}];
-function hexToRgba(hex,a){const n=parseInt(hex.slice(1),16);return'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';}
 function applyAccent(hex){
   document.documentElement.style.setProperty('--accent',hex);
   document.documentElement.style.setProperty('--accent-d',hexToRgba(hex,0.13));
@@ -3030,6 +3033,32 @@ document.addEventListener('keydown',(e)=>{
   else if(e.key.toLowerCase()==='n'){e.preventDefault();openM();}
 });
 function focusGlobalSearch(){sw('orders');const s=$('srch');if(s){s.focus();s.select();}}
+
+// ── ACCESSIBILITY: keyboard support for onclick-only divs ──────────
+// Most interactive elements here are <div onclick="..."> (order cards,
+// filter chips, category picker, accent swatches) rather than <button> —
+// rewriting every one to a semantic element is a much bigger change than
+// this pass warrants. This retrofits real keyboard equivalence (Tab focus
+// + Enter/Space activation) without touching each render function: a
+// MutationObserver re-tags anything new as it's rendered. Modal/backdrop
+// overlays are excluded — those close-on-click-outside, they aren't
+// "buttons" a keyboard user should tab onto.
+function enhanceClickableDivs(root){
+  (root||document).querySelectorAll('div[onclick]:not([data-a11y]):not(.modal-overlay):not(.sidebar-backdrop)').forEach(el=>{
+    el.setAttribute('data-a11y','1');
+    if(!el.hasAttribute('tabindex'))el.setAttribute('tabindex','0');
+    if(!el.hasAttribute('role'))el.setAttribute('role','button');
+  });
+}
+document.addEventListener('keydown',(e)=>{
+  if((e.key==='Enter'||e.key===' ')&&e.target&&e.target.matches&&e.target.matches('div[onclick][role="button"]')){
+    e.preventDefault();e.target.click();
+  }
+});
+enhanceClickableDivs();
+new MutationObserver(muts=>{
+  for(const m of muts){ if(m.addedNodes&&m.addedNodes.length){ enhanceClickableDivs(); break; } }
+}).observe(document.body,{childList:true,subtree:true});
 
 // ── COMMAND PALETTE (⌘K) ─────────────────────────────────────────
 const CMDK_PAGES=[
