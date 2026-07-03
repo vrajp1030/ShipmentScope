@@ -221,11 +221,7 @@
   <!-- SIDEBAR -->
   <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleMobileSidebar()"></div>
   <div class="sidebar" id="sidebar">
-    <div class="sidebar-brand">
-      <img src="/assets/logo.png" width="18" height="18" alt="ShipmentScope" style="border-radius:22%;display:block;"/>
-      <span><span class="brand-dark">Shipment</span><span class="brand-accent">Scope</span></span>
-    </div>
-    <div class="sidebar-section">Navigation</div>
+    <div class="sidebar-section" style="padding-top:4px;">Navigation</div>
     <div class="nav-item on" data-tab="orders" onclick="clearFilters();sw('orders');setActiveNav(this)"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
     <div class="nav-item" data-tab="orders" onclick="clearFilters();sw('orders');setActiveNav(this)"><i class="ti ti-package"></i>Orders<span class="nav-badge" id="nb-cancelled" style="display:none;"></span></div>
     <div class="nav-item" data-tab="emails" onclick="sw('emails')"><i class="ti ti-mail"></i>Emails</div>
