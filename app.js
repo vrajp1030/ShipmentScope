@@ -1804,6 +1804,33 @@ const revealObserver=new IntersectionObserver((entries)=>{
 },{threshold:0.12,rootMargin:'0px 0px -40px 0px'});
 document.querySelectorAll('.reveal').forEach(el=>revealObserver.observe(el));
 
+// ── ROTATING HERO HEADLINE — cycles a few original phrases, all about
+// what ShipmentScope actually tracks (orders/shipments/spend/stores),
+// with a crossfade+slide swap. Same "text rotator" mechanic as other
+// modern SaaS heroes, own copy throughout.
+const HEADLINES=[
+  'Track every order.<br>Every store. Automatically.',
+  'Every shipment, tracked.<br>Every dollar, accounted for.',
+  'From checkout to doorstep —<br>watched automatically.',
+  'One inbox in.<br>One dashboard out.',
+  'Every store you shop.<br>One place to watch it all.'
+];
+let _headlineIdx=0;
+function rotateHeadline(){
+  const el=$('headline-rotate');
+  if(!el)return;
+  el.classList.add('headline-out');
+  setTimeout(()=>{
+    _headlineIdx=(_headlineIdx+1)%HEADLINES.length;
+    el.innerHTML=HEADLINES[_headlineIdx];
+    el.classList.remove('headline-out');
+    el.classList.add('headline-in');
+    void el.offsetWidth; // flush layout so the "in" start state paints before we transition out of it
+    requestAnimationFrame(()=>el.classList.remove('headline-in'));
+  },400);
+}
+setInterval(rotateHeadline,4200);
+
 // ── COMMAND PALETTE (⌘K) ─────────────────────────────────────────
 const CMDK_PAGES=[
   {name:'Orders',icon:'ti-package',action:()=>sw('orders')},
