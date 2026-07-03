@@ -355,15 +355,20 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .landing-eyebrow{display:flex;align-items:center;justify-content:center;gap:12px;font-family:var(--font-eyebrow);font-size:13px;font-weight:400;letter-spacing:0.1em;font-variant-numeric:tabular-nums;color:var(--txt3);text-transform:uppercase;margin-bottom:20px;}
 .landing-eyebrow::before,.landing-eyebrow::after{content:'';width:28px;height:1px;background:var(--brd2);}
 
-/* ENTRANCE ANIMATIONS — everything pops/slides up into place on load */
+/* ENTRANCE ANIMATIONS — hero pops/slides up on load; everything further
+   down the landing page (.reveal) instead waits until it actually
+   scrolls into view (see the IntersectionObserver in the main script),
+   so motion happens when a visitor can see it, not all at once on load. */
 @keyframes popIn{from{opacity:0;transform:translateY(28px) scale(.97);}to{opacity:1;transform:translateY(0) scale(1);}}
 .pop-in{animation:popIn .7s cubic-bezier(.2,.8,.25,1) both;}
-.pop-delay-1{animation-delay:.08s;}
-.pop-delay-2{animation-delay:.16s;}
-.pop-delay-3{animation-delay:.24s;}
-.pop-delay-4{animation-delay:.32s;}
-.pop-delay-5{animation-delay:.4s;}
-.pop-delay-6{animation-delay:.48s;}
+.reveal{opacity:0;transform:translateY(20px);transition:opacity var(--dur-slow) var(--ease-out),transform var(--dur-slow) var(--ease-out);}
+.reveal.revealed{opacity:1;transform:translateY(0);}
+.pop-delay-1{animation-delay:.08s;transition-delay:.08s;}
+.pop-delay-2{animation-delay:.16s;transition-delay:.16s;}
+.pop-delay-3{animation-delay:.24s;transition-delay:.24s;}
+.pop-delay-4{animation-delay:.32s;transition-delay:.32s;}
+.pop-delay-5{animation-delay:.4s;transition-delay:.4s;}
+.pop-delay-6{animation-delay:.48s;transition-delay:.48s;}
 
 /* PRODUCT PREVIEW MOCKUP */
 .landing-preview{max-width:760px;margin:0 auto 84px;padding:0 24px;perspective:1400px;}
@@ -423,13 +428,13 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 @media(max-width:820px){.landing-features{grid-template-columns:repeat(2,1fr);}.landing-steps{grid-template-columns:1fr;}.landing-hero h1{font-size:32px;}.landing-hero{margin-top:40px;}.preview-tiles{grid-template-columns:repeat(2,1fr);}}
 @media(max-width:520px){.landing-features{grid-template-columns:1fr;}.landing-hero-ctas{flex-direction:column;}.landing-nav{padding:16px 18px;}.landing-nav-actions{gap:6px;}.landing-btn-ghost,.landing-nav-actions .landing-btn-primary{height:32px;padding:0 10px;font-size:12px;white-space:nowrap;}.landing-hero-wordmark{font-size:24px;}.landing-cta{width:calc(100% - 32px);padding:32px 18px;}.landing-cta h2{font-size:19px;}}
 /* AUTH SCREEN */
-.auth-screen{position:fixed;inset:0;background:var(--bg);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;}
-.auth-card{width:100%;max-width:380px;background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:28px;box-shadow:inset 0 1px 1px 0 rgba(199,211,234,0.12),inset 0 24px 48px 0 rgba(199,211,234,0.05),0 24px 32px 0 rgba(6,6,14,0.7);}
+.auth-screen{position:fixed;inset:0;background:var(--bg);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;animation:overlayIn var(--dur-base) var(--ease-out);}
+.auth-card{width:100%;max-width:380px;background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:28px;box-shadow:inset 0 1px 1px 0 rgba(199,211,234,0.12),inset 0 24px 48px 0 rgba(199,211,234,0.05),0 24px 32px 0 rgba(6,6,14,0.7);animation:modalIn var(--dur-base) var(--ease-out);}
 .auth-brand{display:flex;align-items:center;gap:9px;justify-content:center;margin-bottom:6px;}
 .auth-brand .hdr-title{font-size:19px;}
 .auth-tagline{text-align:center;font-size:12px;color:var(--txt3);margin-bottom:20px;}
 .auth-tabs{display:flex;background:var(--bg4);border:1px solid var(--brd2);border-radius:999px;padding:3px;margin-bottom:16px;}
-.auth-tab{flex:1;border:none;background:none;padding:8px;border-radius:999px;font-size:13px;font-weight:600;color:var(--txt3);cursor:pointer;}
+.auth-tab{flex:1;border:none;background:none;padding:8px;border-radius:999px;font-size:13px;font-weight:600;color:var(--txt3);cursor:pointer;transition:background var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out);}
 .auth-tab.on{background:var(--accent);color:#fff;}
 .auth-error{background:var(--red-d);border:1px solid rgba(242,102,94,.3);color:var(--red);border-radius:6px;padding:9px 12px;font-size:12px;font-weight:500;margin-bottom:12px;}
 .auth-hint{font-size:11px;color:var(--txt3);margin-top:8px;line-height:1.5;}
@@ -763,7 +768,7 @@ button:active,.hdr-btn:active,.hdr-icon-btn:active,.nav-item:active,.ocard:activ
     </div>
   </div>
 
-  <div class="landing-preview pop-in pop-delay-5">
+  <div class="landing-preview reveal pop-delay-5">
     <div class="preview-frame">
       <div class="preview-chrome"><span></span><span></span><span></span></div>
       <div class="preview-body">
@@ -781,7 +786,7 @@ button:active,.hdr-btn:active,.hdr-icon-btn:active,.nav-item:active,.ocard:activ
     <p class="preview-caption">A simplified look at your dashboard once your inbox is connected — real orders, real tracking, updated every time you scan or sync.</p>
   </div>
 
-  <div class="landing-stores pop-in pop-delay-6">
+  <div class="landing-stores reveal pop-delay-6">
     <p class="landing-stores-lbl">Detects orders from</p>
     <div class="landing-stores-grid">
       <div class="store-chip">Pokémon Center</div>
@@ -798,29 +803,29 @@ button:active,.hdr-btn:active,.hdr-icon-btn:active,.nav-item:active,.ocard:activ
   </div>
 
   <div class="landing-steps">
-    <div class="landing-step pop-in pop-delay-1"><div class="landing-step-num">1</div><h3>Connect your inbox</h3><p>Add your email with a secure app password — takes under a minute.</p></div>
-    <div class="landing-step pop-in pop-delay-2"><div class="landing-step-num">2</div><h3>We scan for orders</h3><p>ShipmentScope reads order confirmations and shipping updates automatically.</p></div>
-    <div class="landing-step pop-in pop-delay-3"><div class="landing-step-num">3</div><h3>Track everything</h3><p>One clean dashboard for every order, every store, always up to date.</p></div>
-    <div class="landing-step pop-in pop-delay-4"><div class="landing-step-num">4</div><h3>Get notified</h3><p>Opt-in desktop alerts the moment something ships or gets cancelled.</p></div>
+    <div class="landing-step reveal pop-delay-1"><div class="landing-step-num">1</div><h3>Connect your inbox</h3><p>Add your email with a secure app password — takes under a minute.</p></div>
+    <div class="landing-step reveal pop-delay-2"><div class="landing-step-num">2</div><h3>We scan for orders</h3><p>ShipmentScope reads order confirmations and shipping updates automatically.</p></div>
+    <div class="landing-step reveal pop-delay-3"><div class="landing-step-num">3</div><h3>Track everything</h3><p>One clean dashboard for every order, every store, always up to date.</p></div>
+    <div class="landing-step reveal pop-delay-4"><div class="landing-step-num">4</div><h3>Get notified</h3><p>Opt-in desktop alerts the moment something ships or gets cancelled.</p></div>
   </div>
 
   <div class="landing-features">
-    <div class="landing-feature pop-in pop-delay-1"><i class="ti ti-mail"></i><h3>Automatic email sync</h3><p>Connects to Gmail, iCloud, or Outlook and turns order confirmations into tracked orders — no manual entry.</p></div>
-    <div class="landing-feature pop-in pop-delay-2"><i class="ti ti-building-store"></i><h3>Every store, one dashboard</h3><p>Pokémon Center, Amazon, eBay, Target, TCGPlayer, and more — all tracked in one place.</p></div>
-    <div class="landing-feature pop-in pop-delay-3"><i class="ti ti-truck-delivery"></i><h3>Status at a glance</h3><p>See status, carrier, and expected delivery for every order — based on the latest update found in your order emails.</p></div>
-    <div class="landing-feature pop-in pop-delay-4"><i class="ti ti-shield-lock"></i><h3>Private &amp; secure</h3><p>Your email password is encrypted at rest. We only scan for order, shipping, and receipt-related emails — never your personal messages.</p></div>
-    <div class="landing-feature pop-in pop-delay-1"><i class="ti ti-chart-bar"></i><h3>Spend insights</h3><p>Avg. delivery time, on-time rate, and monthly spend broken down automatically.</p></div>
-    <div class="landing-feature pop-in pop-delay-2"><i class="ti ti-calendar"></i><h3>Calendar view</h3><p>See every expected delivery laid out by date, not buried in a list.</p></div>
-    <div class="landing-feature pop-in pop-delay-3"><i class="ti ti-download"></i><h3>Full data export</h3><p>Download a complete backup or CSV any time — your data isn't locked in.</p></div>
-    <div class="landing-feature pop-in pop-delay-4"><i class="ti ti-bell"></i><h3>Desktop alerts</h3><p>Opt-in notifications when new orders sync or a status changes.</p></div>
+    <div class="landing-feature reveal pop-delay-1"><i class="ti ti-mail"></i><h3>Automatic email sync</h3><p>Connects to Gmail, iCloud, or Outlook and turns order confirmations into tracked orders — no manual entry.</p></div>
+    <div class="landing-feature reveal pop-delay-2"><i class="ti ti-building-store"></i><h3>Every store, one dashboard</h3><p>Pokémon Center, Amazon, eBay, Target, TCGPlayer, and more — all tracked in one place.</p></div>
+    <div class="landing-feature reveal pop-delay-3"><i class="ti ti-truck-delivery"></i><h3>Status at a glance</h3><p>See status, carrier, and expected delivery for every order — based on the latest update found in your order emails.</p></div>
+    <div class="landing-feature reveal pop-delay-4"><i class="ti ti-shield-lock"></i><h3>Private &amp; secure</h3><p>Your email password is encrypted at rest. We only scan for order, shipping, and receipt-related emails — never your personal messages.</p></div>
+    <div class="landing-feature reveal pop-delay-1"><i class="ti ti-chart-bar"></i><h3>Spend insights</h3><p>Avg. delivery time, on-time rate, and monthly spend broken down automatically.</p></div>
+    <div class="landing-feature reveal pop-delay-2"><i class="ti ti-calendar"></i><h3>Calendar view</h3><p>See every expected delivery laid out by date, not buried in a list.</p></div>
+    <div class="landing-feature reveal pop-delay-3"><i class="ti ti-download"></i><h3>Full data export</h3><p>Download a complete backup or CSV any time — your data isn't locked in.</p></div>
+    <div class="landing-feature reveal pop-delay-4"><i class="ti ti-bell"></i><h3>Desktop alerts</h3><p>Opt-in notifications when new orders sync or a status changes.</p></div>
   </div>
 
   <div class="landing-preview2">
-    <div class="preview2-text pop-in">
+    <div class="preview2-text reveal">
       <h2>See where your money actually goes</h2>
       <p>Average delivery time, on-time rate, monthly spend, and a category breakdown — computed live from your real order history, not a spreadsheet you have to maintain.</p>
     </div>
-    <div class="preview-frame preview2-frame pop-in pop-delay-1">
+    <div class="preview-frame preview2-frame reveal pop-delay-1">
       <div class="preview-chrome"><span></span><span></span><span></span></div>
       <div class="preview-body">
         <div class="preview-tiles" style="grid-template-columns:repeat(3,1fr);margin-bottom:18px;">
@@ -837,7 +842,7 @@ button:active,.hdr-btn:active,.hdr-icon-btn:active,.nav-item:active,.ocard:activ
     </div>
   </div>
 
-  <div class="landing-faq">
+  <div class="landing-faq reveal">
     <h2>Questions</h2>
     <div class="faq-item"><h3>Is my email password safe?</h3><p>Yes — it's encrypted at rest (AES-256). Scanning works by searching your inbox for order, shipping, tracking, and receipt-related subject lines — it doesn't read your personal messages.</p></div>
     <div class="faq-item"><h3>Which email providers work?</h3><p>Gmail, iCloud, and Outlook all work today, plus any custom IMAP provider.</p></div>
@@ -845,7 +850,7 @@ button:active,.hdr-btn:active,.hdr-icon-btn:active,.nav-item:active,.ocard:activ
     <div class="faq-item"><h3>Do I have to enter orders manually?</h3><p>No — connect your inbox once and new orders are detected automatically. You can also add one manually any time.</p></div>
   </div>
 
-  <div class="landing-cta">
+  <div class="landing-cta reveal">
     <h2>Ready to stop losing track of orders?</h2>
     <button class="landing-btn-primary" onclick="goToAuth('signup')">Get started free</button>
   </div>
@@ -3094,6 +3099,24 @@ enhanceClickableDivs();
 new MutationObserver(muts=>{
   for(const m of muts){ if(m.addedNodes&&m.addedNodes.length){ enhanceClickableDivs(); break; } }
 }).observe(document.body,{childList:true,subtree:true});
+
+// ── SCROLL-REVEAL for the landing page ──────────────────────────────
+// Sections below the hero start hidden (.reveal, opacity:0) and fade+
+// slide in once actually scrolled into view, instead of all animating
+// at once on page load while off-screen. Fires once per element, then
+// stops observing it (a landing page doesn't need to re-animate on
+// scroll-up). Reduced-motion users already get near-zero transition
+// duration from the global prefers-reduced-motion rule, so no separate
+// handling is needed here.
+const revealObserver=new IntersectionObserver((entries)=>{
+  entries.forEach(entry=>{
+    if(entry.isIntersecting){
+      entry.target.classList.add('revealed');
+      revealObserver.unobserve(entry.target);
+    }
+  });
+},{threshold:0.12,rootMargin:'0px 0px -40px 0px'});
+document.querySelectorAll('.reveal').forEach(el=>revealObserver.observe(el));
 
 // ── COMMAND PALETTE (⌘K) ─────────────────────────────────────────
 const CMDK_PAGES=[
