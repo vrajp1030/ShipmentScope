@@ -23,11 +23,15 @@
   --bg:#05060f;--bg2:#2f343e;--bg3:#3a3f4a;--bg4:#454b58;
   --brd:rgba(63,73,89,0.6);--brd2:rgba(186,215,247,0.16);
   --txt:#d8ecf8;--txt2:#c7d3ea;--txt3:#a8b0c1;
-  --red:#f2665e;--red-d:rgba(242,102,94,0.13);
-  --amber:#e0a742;--amber-d:rgba(224,167,66,0.13);
-  --green:#4fbf8b;--green-d:rgba(79,191,139,0.13);
-  --blue:#5b9ee6;--blue-d:rgba(91,158,230,0.13);
-  --purple:#9c8cec;--purple-d:rgba(156,140,236,0.13);
+  /* Lightened from the original tones (kept as the -d background hue
+     below) specifically to clear WCAG AA 4.5:1 as text/icon color against
+     --bg2/--bg3 card surfaces, where these render as pills, chip labels,
+     and status icons everywhere in the app — measured, not eyeballed. */
+  --red:#ff968e;--red-d:rgba(242,102,94,0.18);
+  --amber:#f0be6e;--amber-d:rgba(224,167,66,0.18);
+  --green:#78d2aa;--green-d:rgba(79,191,139,0.18);
+  --blue:#8cbef5;--blue-d:rgba(91,158,230,0.18);
+  --purple:#beb2f5;--purple-d:rgba(156,140,236,0.18);
   --coral:#e0906b;--teal:#4fbfb0;
   --accent:#663af3;--accent-d:rgba(102,58,243,0.16);
   --primary:#d8ecf8;--primary-txt:#05060f;
@@ -149,13 +153,13 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .pane{display:none;padding:20px;padding-bottom:56px;flex:1;}
 .pane.on{display:flex;flex-direction:column;}
 
-/* TOAST */
-.toast{position:fixed;top:62px;left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid rgba(79,191,139,0.35);border-radius:6px;padding:10px 18px;font-size:13px;font-weight:500;color:var(--green);z-index:500;display:none;align-items:center;gap:8px;}
-.toast.show{display:flex;animation:slideDown .3s ease;}
+/* TOAST — transitions (not a one-shot animation) so it animates smoothly
+   both appearing AND disappearing, from a single .show class toggle. */
+.toast{position:fixed;top:62px;left:50%;background:var(--bg3);border:1px solid rgba(79,191,139,0.35);border-radius:8px;padding:10px 18px;font-size:13px;font-weight:500;color:var(--green);z-index:500;display:flex;align-items:center;gap:8px;box-shadow:0 12px 28px -6px rgba(0,0,0,0.45);opacity:0;visibility:hidden;pointer-events:none;transform:translateX(-50%) translateY(-10px) scale(.97);transition:opacity var(--dur-base) var(--ease-out),transform var(--dur-base) var(--ease-out),visibility var(--dur-base);}
+.toast.show{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(-50%) translateY(0) scale(1);}
 .toast.warn{background:rgba(255,184,48,0.2);border-color:rgba(255,184,48,0.4);color:var(--amber);}
 .toast.error{background:rgba(255,95,87,0.2);border-color:rgba(255,95,87,0.4);color:var(--red);}
 .toast-action{font-weight:700;text-decoration:underline;cursor:pointer;margin-left:4px;}
-@keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-10px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
 
 /* CANCEL BANNER */
 .cx-banner{background:rgba(255,95,87,0.13);border:1px solid rgba(255,95,87,0.28);border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:flex-start;gap:9px;flex-shrink:0;}
