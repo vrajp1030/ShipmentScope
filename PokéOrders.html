@@ -30,6 +30,9 @@
   </div>
 
   <div class="landing-hero">
+    <div class="hero-orb hero-orb-1" aria-hidden="true"></div>
+    <div class="hero-orb hero-orb-2" aria-hidden="true"></div>
+    <div class="hero-orb hero-orb-3" aria-hidden="true"></div>
     <div class="landing-hero-logo pop-in">
       <img src="/assets/logo.png" width="88" height="88" alt="ShipmentScope" style="display:block;"/>
     </div>
@@ -63,17 +66,30 @@
 
   <div class="landing-stores reveal pop-delay-6">
     <p class="landing-stores-lbl">Detects orders from</p>
-    <div class="landing-stores-grid">
-      <div class="store-chip">Pokémon Center</div>
-      <div class="store-chip">Target</div>
-      <div class="store-chip">Amazon</div>
-      <div class="store-chip">TikTok Shop</div>
-      <div class="store-chip">Mattel Creations</div>
-      <div class="store-chip">Bandai</div>
-      <div class="store-chip">TCGPlayer</div>
-      <div class="store-chip">eBay</div>
-      <div class="store-chip">Whatnot</div>
-      <div class="store-chip">Mercari</div>
+    <div class="landing-stores-viewport">
+      <div class="landing-stores-grid">
+        <div class="store-chip">Pokémon Center</div>
+        <div class="store-chip">Target</div>
+        <div class="store-chip">Amazon</div>
+        <div class="store-chip">TikTok Shop</div>
+        <div class="store-chip">Mattel Creations</div>
+        <div class="store-chip">Bandai</div>
+        <div class="store-chip">TCGPlayer</div>
+        <div class="store-chip">eBay</div>
+        <div class="store-chip">Whatnot</div>
+        <div class="store-chip">Mercari</div>
+        <!-- Duplicate set — required for the seamless infinite-scroll loop (see .landing-stores-grid animation) -->
+        <div class="store-chip" aria-hidden="true">Pokémon Center</div>
+        <div class="store-chip" aria-hidden="true">Target</div>
+        <div class="store-chip" aria-hidden="true">Amazon</div>
+        <div class="store-chip" aria-hidden="true">TikTok Shop</div>
+        <div class="store-chip" aria-hidden="true">Mattel Creations</div>
+        <div class="store-chip" aria-hidden="true">Bandai</div>
+        <div class="store-chip" aria-hidden="true">TCGPlayer</div>
+        <div class="store-chip" aria-hidden="true">eBay</div>
+        <div class="store-chip" aria-hidden="true">Whatnot</div>
+        <div class="store-chip" aria-hidden="true">Mercari</div>
+      </div>
     </div>
   </div>
 

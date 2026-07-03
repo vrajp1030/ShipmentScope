@@ -305,9 +305,20 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .landing-btn-ghost:hover{background:rgba(255,255,255,0.06);transform:translateY(-2px) scale(1.03);box-shadow:0 8px 18px rgba(0,0,0,0.35);}
 .landing-btn-primary{padding:0 20px;height:36px;border-radius:2px;background:var(--accent);border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:transform .2s ease,box-shadow .2s ease,opacity .2s ease;}
 .landing-btn-primary:hover{background:#7c52f5;transform:translateY(-2px) scale(1.03);box-shadow:var(--glow-accent);}
-.landing-hero{position:relative;max-width:760px;margin:64px auto 76px;padding:0 24px;text-align:center;}
-.landing-hero::before{content:'';position:absolute;top:-60px;left:50%;transform:translateX(-50%);width:520px;height:340px;background:radial-gradient(ellipse,rgba(102,58,243,0.14),transparent 70%);pointer-events:none;z-index:0;}
+.landing-hero{position:relative;max-width:760px;margin:64px auto 76px;padding:0 24px;text-align:center;overflow:visible;}
+.landing-hero::before{content:'';position:absolute;top:-60px;left:50%;transform:translateX(-50%);width:520px;height:340px;background:radial-gradient(ellipse,rgba(102,58,243,0.14),transparent 70%);pointer-events:none;z-index:0;animation:heroGlowPulse 8s ease-in-out infinite;}
 .landing-hero>*{position:relative;z-index:1;}
+/* Ambient floating gradient orbs — purely decorative (aria-hidden), slow
+   independent drift/pulse so the hero reads as alive without being busy
+   or distracting. Each layer sits behind the content (z-index:0). */
+.hero-orb{position:absolute;border-radius:50%;pointer-events:none;z-index:0;filter:blur(1px);}
+.hero-orb-1{top:10px;left:-40px;width:120px;height:120px;background:radial-gradient(circle,rgba(140,190,245,.16),transparent 70%);animation:heroOrbDrift1 14s ease-in-out infinite;}
+.hero-orb-2{top:60px;right:-30px;width:160px;height:160px;background:radial-gradient(circle,rgba(190,178,245,.14),transparent 70%);animation:heroOrbDrift2 18s ease-in-out infinite;}
+.hero-orb-3{bottom:-40px;left:38%;width:90px;height:90px;background:radial-gradient(circle,rgba(120,210,170,.12),transparent 70%);animation:heroOrbDrift3 11s ease-in-out infinite;}
+@keyframes heroGlowPulse{0%,100%{opacity:1;transform:translateX(-50%) scale(1);}50%{opacity:.7;transform:translateX(-50%) scale(1.08);}}
+@keyframes heroOrbDrift1{0%,100%{transform:translate(0,0);}50%{transform:translate(18px,-14px);}}
+@keyframes heroOrbDrift2{0%,100%{transform:translate(0,0);}50%{transform:translate(-22px,16px);}}
+@keyframes heroOrbDrift3{0%,100%{transform:translate(0,0);}50%{transform:translate(14px,10px);}}
 .landing-hero-logo{width:88px;height:88px;margin:0 auto 26px;display:flex;align-items:center;justify-content:center;transition:transform .35s ease;}
 .landing-hero-logo img{width:100%;height:100%;border-radius:22%!important;box-shadow:0 0 0 1px var(--brd2);}
 .landing-hero-logo:hover{transform:perspective(700px) rotateX(10deg) rotateY(-10deg) scale(1.08);}
@@ -325,10 +336,18 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .landing-feature h3{font-size:13.5px;font-weight:600;margin-bottom:6px;color:var(--txt);}
 .landing-feature p{font-size:12.5px;color:var(--txt3);line-height:1.55;}
 .landing-steps{max-width:960px;margin:0 auto 90px;padding:0 24px;display:grid;grid-template-columns:repeat(4,1fr);gap:24px;text-align:center;}
-.landing-stores{max-width:900px;margin:0 auto 84px;padding:0 24px;text-align:center;}
-.landing-stores-lbl{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--txt3);margin-bottom:18px;}
-.landing-stores-grid{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;}
-.store-chip{background:var(--bg2);border:1px solid var(--brd);border-radius:6px;padding:8px 16px;font-size:12.5px;font-weight:600;color:var(--txt2);transition:transform .2s ease,border-color .2s ease,color .2s ease;}
+.landing-stores{max-width:100%;margin:0 auto 84px;text-align:center;}
+.landing-stores-lbl{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--txt3);margin-bottom:18px;padding:0 24px;}
+/* Infinite scrolling marquee — the chip list is duplicated in the markup
+   (two identical .landing-stores-track runs back to back) so translateX
+   from 0 to -50% loops seamlessly with no visible seam or reset-jump.
+   Edge fade via mask-image is the standard "content bleeds off the sides"
+   treatment (Stripe/Vercel-style logo tickers) rather than a hard clip. */
+.landing-stores-viewport{overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);}
+.landing-stores-grid{display:flex;width:max-content;gap:10px;animation:storesMarquee 28s linear infinite;}
+.landing-stores-grid:hover{animation-play-state:paused;}
+@keyframes storesMarquee{from{transform:translateX(0);}to{transform:translateX(-50%);}}
+.store-chip{flex-shrink:0;background:var(--bg2);border:1px solid var(--brd);border-radius:6px;padding:8px 16px;font-size:12.5px;font-weight:600;color:var(--txt2);transition:transform .2s ease,border-color .2s ease,color .2s ease;}
 .store-chip:hover{transform:translateY(-3px);border-color:rgba(102,58,243,.45);color:var(--txt);}
 .landing-step{transition:transform .25s ease;}
 .landing-step:hover{transform:translateY(-4px);}
