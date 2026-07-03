@@ -721,10 +721,11 @@
 <!-- CHECKOUT CARD GENERATOR -->
 <div class="modal-overlay" id="card-wrap">
   <div class="modal card-modal">
-    <div class="mhdr"><h2>Create checkout card</h2><button class="mclose" onclick="closeCheckoutCard()" aria-label="Close"><i class="ti ti-x"></i></button></div>
+    <div class="mhdr"><h2><i class="ti ti-photo" style="font-size:15px;color:var(--accent);vertical-align:-1px;margin-right:7px;"></i>Create checkout card</h2><button class="mclose" onclick="closeCheckoutCard()" aria-label="Close"><i class="ti ti-x"></i></button></div>
     <div class="mbody">
       <canvas id="card-canvas" width="1000" height="560" class="card-canvas"></canvas>
-      <div class="mfg"><label>Background</label>
+      <div class="card-bg-panel">
+        <label class="card-bg-panel-lbl">Background</label>
         <div class="card-bg-row">
           <div class="card-bg-swatch sel" data-bg="0" style="background:radial-gradient(circle at 28% 22%,rgba(212,166,58,.35),transparent 70%),#121214;" onclick="setCardBg(0,this)" title="Midnight Gold"></div>
           <div class="card-bg-swatch" data-bg="1" style="background:radial-gradient(circle at 28% 22%,rgba(79,142,247,.32),transparent 70%),#121214;" onclick="setCardBg(1,this)" title="Slate Blue"></div>
