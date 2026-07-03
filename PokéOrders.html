@@ -1094,9 +1094,9 @@ button:active,.hdr-btn:active,.hdr-icon-btn:active,.nav-item:active,.ocard:activ
     <div id="pane-calendar" class="pane">
       <div class="cal-hdr">
         <div class="cal-nav">
-          <button class="cal-nav-btn" onclick="cPrev()"><i class="ti ti-chevron-left"></i></button>
+          <button class="cal-nav-btn" onclick="cPrev()" aria-label="Previous month"><i class="ti ti-chevron-left"></i></button>
           <div><div class="cal-month" id="cm-lbl"></div><div class="cal-sub" id="cm-sub"></div></div>
-          <button class="cal-nav-btn" onclick="cNext()"><i class="ti ti-chevron-right"></i></button>
+          <button class="cal-nav-btn" onclick="cNext()" aria-label="Next month"><i class="ti ti-chevron-right"></i></button>
         </div>
         <button class="cal-today-btn" onclick="cToday()"><i class="ti ti-target" style="font-size:11px;"></i> Today</button>
       </div>
@@ -1182,7 +1182,7 @@ button:active,.hdr-btn:active,.hdr-icon-btn:active,.nav-item:active,.ocard:activ
   <div class="email-modal" style="max-width:600px;">
     <div class="email-mhdr">
       <div class="email-mhdr-info"><h2 id="dt-name"></h2><p id="dt-meta"></p></div>
-      <button class="email-close" onclick="closeDetail()"><i class="ti ti-x"></i></button>
+      <button class="email-close" onclick="closeDetail()" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="email-meta-row" id="dt-pills"></div>
     <div class="email-body">
@@ -1206,7 +1206,7 @@ button:active,.hdr-btn:active,.hdr-icon-btn:active,.nav-item:active,.ocard:activ
   <div class="email-modal">
     <div class="email-mhdr">
       <div class="email-mhdr-info"><h2 id="ev-subject"></h2><p id="ev-meta"></p></div>
-      <button class="email-close" onclick="closeEmail()"><i class="ti ti-x"></i></button>
+      <button class="email-close" onclick="closeEmail()" aria-label="Close"><i class="ti ti-x"></i></button>
     </div>
     <div class="email-meta-row" id="ev-pills"></div>
     <div class="email-body" id="ev-body"></div>
@@ -1220,7 +1220,7 @@ button:active,.hdr-btn:active,.hdr-icon-btn:active,.nav-item:active,.ocard:activ
 <!-- SETTINGS MODAL -->
 <div class="settings-overlay" id="settings-overlay">
   <div class="settings-modal">
-    <div class="smhdr"><h2><i class="ti ti-settings" style="font-size:16px;vertical-align:-2px;margin-right:6px;"></i>Settings</h2><button class="sm-close" onclick="closeSettings()"><i class="ti ti-x"></i></button></div>
+    <div class="smhdr"><h2><i class="ti ti-settings" style="font-size:16px;vertical-align:-2px;margin-right:6px;"></i>Settings</h2><button class="sm-close" onclick="closeSettings()" aria-label="Close"><i class="ti ti-x"></i></button></div>
     <div class="sm-body">
 
       <div class="sm-section">
@@ -1672,7 +1672,7 @@ function rStats(){
   const z=$('cx-zone');
   if(cxList.length&&settings['cancel']){
     const names=cxList.slice(0,3).map(o=>'<strong style="cursor:pointer;text-decoration:underline dotted;" onclick="openEmail(\''+o.id+'\')">'+(o.name||'Order').slice(0,40)+'</strong>').join('<br>');
-    z.innerHTML='<div class="cx-banner"><i class="ti ti-alert-triangle"></i><div class="cx-txt">'+cxList.length+' cancelled order'+(cxList.length>1?'s':'')+':<br>'+names+(cxList.length>3?'<br>+' +(cxList.length-3)+' more':'')+'</div><button class="cx-close" onclick="this.parentElement.parentElement.innerHTML=\'\'"><i class="ti ti-x"></i></button></div>';
+    z.innerHTML='<div class="cx-banner"><i class="ti ti-alert-triangle"></i><div class="cx-txt">'+cxList.length+' cancelled order'+(cxList.length>1?'s':'')+':<br>'+names+(cxList.length>3?'<br>+' +(cxList.length-3)+' more':'')+'</div><button class="cx-close" onclick="this.parentElement.parentElement.innerHTML=\'\'" aria-label="Dismiss"><i class="ti ti-x"></i></button></div>';
   }else z.innerHTML='';
 
 
@@ -2421,34 +2421,34 @@ function importAll(){
 const DEFAULT_INSIGHT_WIDGETS=['monthly-chart','category-chart'];
 const INSIGHT_WIDGETS={
   'monthly-chart':{label:'Monthly spend trend',
-    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'monthly-chart\')" title="Remove"><i class="ti ti-x"></i></button><h3>'+ctx.monthRangeLbl+' <span>'+ctx.monthYearLbl+' spend</span></h3><div style="height:200px;position:relative;"><canvas id="monthChart"></canvas></div></div>',
+    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'monthly-chart\')" title="Remove" aria-label="Remove monthly spend chart widget"><i class="ti ti-x"></i></button><h3>'+ctx.monthRangeLbl+' <span>'+ctx.monthYearLbl+' spend</span></h3><div style="height:200px;position:relative;"><canvas id="monthChart"></canvas></div></div>',
     after:ctx=>{const mc=document.getElementById('monthChart');if(mc)charts.push(new Chart(mc,{type:'bar',data:{labels:ctx.monthlyData.map(d=>d.label),datasets:[{label:'$',data:ctx.monthlyData.map(d=>d.total),backgroundColor:ctx.monthlyData.map(d=>d.color),borderRadius:6,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.raw.toLocaleString()}}},scales:{x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#c3c3cc',font:{weight:'700',size:11}}},y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8a8a94',font:{size:11},callback:v=>'$'+v.toLocaleString()},border:{display:false}}}}}));}
   },
   'category-chart':{label:'Spend by category',
-    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'category-chart\')" title="Remove"><i class="ti ti-x"></i></button><h3>Spend by category <span>all time</span></h3><div style="height:200px;position:relative;"><canvas id="catChart"></canvas></div></div>',
+    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'category-chart\')" title="Remove" aria-label="Remove spend by category chart widget"><i class="ti ti-x"></i></button><h3>Spend by category <span>all time</span></h3><div style="height:200px;position:relative;"><canvas id="catChart"></canvas></div></div>',
     after:ctx=>{const catData=Object.entries(CATS).filter(([k])=>ctx.byCat[k]).sort((a,b)=>(ctx.byCat[b[0]]||0)-(ctx.byCat[a[0]]||0));const cc=document.getElementById('catChart');if(cc)charts.push(new Chart(cc,{type:'bar',data:{labels:catData.map(([k])=>k.charAt(0).toUpperCase()+k.slice(1)),datasets:[{label:'$',data:catData.map(([k])=>Math.round(ctx.catSpend[k]||0)),backgroundColor:catData.map(([k])=>CAT_COLORS[k]||'#8a8a94'),borderRadius:6,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.raw.toLocaleString()}}},scales:{x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#c3c3cc',font:{weight:'700',size:11}}},y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8a8a94',font:{size:11},callback:v=>'$'+v.toLocaleString()},border:{display:false}}}}}));}
   },
   'status-bars':{label:'Orders by status',
     html:ctx=>{const bars=Object.entries({ordered:'Ordered',shipped:'Shipped',delivered:'Delivered',cancelled:'Cancelled',preorder:'Pre-order'}).map(([k,v])=>{const c=ctx.byStatus[k]||0,pct=ctx.t?Math.round((c/ctx.t)*100):0;return'<div class="bar-row"><div class="bar-lbl"><span>'+v+'</span><span style="color:'+SC[k]+'">'+c+'</span></div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+SC[k]+'"></div></div></div>';}).join('');
-      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'status-bars\')" title="Remove"><i class="ti ti-x"></i></button><h3>Orders by status <span>'+ctx.t+' total</span></h3>'+bars+'</div>';}
+      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'status-bars\')" title="Remove" aria-label="Remove orders by status widget"><i class="ti ti-x"></i></button><h3>Orders by status <span>'+ctx.t+' total</span></h3>'+bars+'</div>';}
   },
   'top-stores':{label:'Top stores by spend',
     html:ctx=>{const rows=ctx.topStores.map(([name,amt],i)=>'<div class="store-row"><div class="store-rank">#'+(i+1)+'</div><div class="store-ico ci-packs">'+STORE_ICO_DEFAULT+'</div><div class="store-info"><div class="store-name">'+escHtml(name)+'</div><div class="store-cnt">'+(ctx.byStore[name]||0)+' orders</div></div><div class="store-amt">$'+ctx.fmt(amt)+'</div></div>').join('')||'<div style="font-size:12px;color:var(--txt3);">No spend yet</div>';
-      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'top-stores\')" title="Remove"><i class="ti ti-x"></i></button><h3>Top stores <span>by spend</span></h3>'+rows+'</div>';}
+      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'top-stores\')" title="Remove" aria-label="Remove top stores widget"><i class="ti ti-x"></i></button><h3>Top stores <span>by spend</span></h3>'+rows+'</div>';}
   },
   'category-cards':{label:'Category breakdown',
     html:ctx=>{const cards=Object.entries(CATS).filter(([k])=>ctx.byCat[k]).sort((a,b)=>(ctx.byCat[b[0]]||0)-(ctx.byCat[a[0]]||0)).map(([k,v])=>'<div class="cat-ins"><div class="cat-ins-top"><div class="cat-ins-ico ci-'+k+'">'+v.e+'</div><div><div class="cat-ins-name">'+k.charAt(0).toUpperCase()+k.slice(1)+'</div><div class="cat-ins-cnt">'+(ctx.byCat[k]||0)+' orders</div></div></div><div class="cat-ins-val">$'+ctx.fmt(ctx.catSpend[k]||0)+'</div><div class="cat-ins-sub">total spent</div></div>').join('');
-      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'category-cards\')" title="Remove"><i class="ti ti-x"></i></button><h3>Category breakdown</h3><div class="cat-grid2">'+cards+'</div></div>';}
+      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'category-cards\')" title="Remove" aria-label="Remove category breakdown widget"><i class="ti ti-x"></i></button><h3>Category breakdown</h3><div class="cat-grid2">'+cards+'</div></div>';}
   },
   'budget':{label:'Monthly budget tracker',
     html:ctx=>{
       const budget=parseInt(localStorage.getItem('po_budget')||'0');
-      if(!budget)return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'budget\')" title="Remove"><i class="ti ti-x"></i></button><h3>Monthly budget</h3><p style="font-size:12px;color:var(--txt3);">Set a monthly budget in Settings to track it here.</p></div>';
+      if(!budget)return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'budget\')" title="Remove" aria-label="Remove monthly budget widget"><i class="ti ti-x"></i></button><h3>Monthly budget</h3><p style="font-size:12px;color:var(--txt3);">Set a monthly budget in Settings to track it here.</p></div>';
       const pct=Math.min(100,Math.round((ctx.thisMonthSpend/budget)*100));
-      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'budget\')" title="Remove"><i class="ti ti-x"></i></button><h3>Monthly budget <span>'+new Date().toLocaleDateString('en-US',{month:'long'})+'</span></h3><div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="font-size:14px;font-weight:600;color:var(--txt2);">$'+ctx.fmt(ctx.thisMonthSpend)+' spent</span><span style="font-size:14px;font-weight:600;color:var(--txt3);">$'+ctx.fmt(budget)+' budget</span></div><div class="bar-track" style="height:10px;"><div class="bar-fill" style="width:'+pct+'%;background:'+(ctx.thisMonthSpend>budget?'var(--red)':'var(--accent)')+'"></div></div>'+(ctx.thisMonthSpend>budget?'<div style="font-size:12px;color:var(--red);font-weight:600;margin-top:6px;">Over budget by $'+ctx.fmt(ctx.thisMonthSpend-budget)+'</div>':'<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px;">$'+ctx.fmt(budget-ctx.thisMonthSpend)+' remaining</div>')+'</div>';}
+      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'budget\')" title="Remove" aria-label="Remove monthly budget widget"><i class="ti ti-x"></i></button><h3>Monthly budget <span>'+new Date().toLocaleDateString('en-US',{month:'long'})+'</span></h3><div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="font-size:14px;font-weight:600;color:var(--txt2);">$'+ctx.fmt(ctx.thisMonthSpend)+' spent</span><span style="font-size:14px;font-weight:600;color:var(--txt3);">$'+ctx.fmt(budget)+' budget</span></div><div class="bar-track" style="height:10px;"><div class="bar-fill" style="width:'+pct+'%;background:'+(ctx.thisMonthSpend>budget?'var(--red)':'var(--accent)')+'"></div></div>'+(ctx.thisMonthSpend>budget?'<div style="font-size:12px;color:var(--red);font-weight:600;margin-top:6px;">Over budget by $'+ctx.fmt(ctx.thisMonthSpend-budget)+'</div>':'<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px;">$'+ctx.fmt(budget-ctx.thisMonthSpend)+' remaining</div>')+'</div>';}
   },
   'trophy':{label:'Top category highlight',
-    html:ctx=>'<div class="trophy"><button class="widget-remove" onclick="removeWidget(\'trophy\')" title="Remove"><i class="ti ti-x"></i></button><div class="trophy-ico"><i class="ti ti-trophy" style="font-size:22px;color:var(--amber);"></i></div><div class="trophy-info"><h4>'+ctx.topCat[0].charAt(0).toUpperCase()+ctx.topCat[0].slice(1)+'</h4><p>Top category</p></div><div class="trophy-num">'+ctx.topCat[1]+'</div></div>'
+    html:ctx=>'<div class="trophy"><button class="widget-remove" onclick="removeWidget(\'trophy\')" title="Remove" aria-label="Remove top category widget"><i class="ti ti-x"></i></button><div class="trophy-ico"><i class="ti ti-trophy" style="font-size:22px;color:var(--amber);"></i></div><div class="trophy-info"><h4>'+ctx.topCat[0].charAt(0).toUpperCase()+ctx.topCat[0].slice(1)+'</h4><p>Top category</p></div><div class="trophy-num">'+ctx.topCat[1]+'</div></div>'
   },
 };
 function getActiveWidgets(){
