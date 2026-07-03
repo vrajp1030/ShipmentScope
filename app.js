@@ -109,12 +109,27 @@ function toggleMobileSidebar(){
   $('sidebar').classList.toggle('mobile-open');
   $('sidebar-backdrop').classList.toggle('show');
 }
+// The metric-tiles header is persistent across every tab (by design — see
+// below), but its title/subtitle previously always said "Dashboard" even
+// while looking at Insights or Tracking, which read as a real UX mismatch
+// once you noticed it. Keeps the KPI strip's context in sync with wherever
+// you actually are.
+const TAB_HERO={
+  orders:{title:'Dashboard',sub:'Track and manage your Pokémon orders across every store'},
+  emails:{title:'Emails',sub:'Every order-related email that has been scanned or synced'},
+  tracking:{title:'Tracking',sub:'Last known status from your emails, sorted by expected delivery'},
+  calendar:{title:'Calendar',sub:'Expected deliveries laid out by date'},
+  sync:{title:'Sync',sub:'Connect and manage your email accounts'},
+  insights:{title:'Insights',sub:'Your spending and delivery patterns, computed from your order history'},
+};
 function sw(tab){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('on'));
   document.querySelector('[data-tab="'+tab+'"]').classList.add('on');
   document.querySelectorAll('.pane').forEach(el=>el.classList.remove('on'));
   $('pane-'+tab).classList.add('on');
   $('sidebar').classList.remove('mobile-open'); $('sidebar-backdrop').classList.remove('show'); // close the mobile drawer after picking a tab
+  const hero=TAB_HERO[tab];
+  if(hero){$('hero-title').textContent=hero.title;$('hero-sub').textContent=hero.sub;}
   safeRun(rStats); // header metric tiles are always visible regardless of active tab
   if(tab==='orders')safeRun(rOrders);
   if(tab==='emails')safeRun(rEmails);
