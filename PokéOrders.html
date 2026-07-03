@@ -56,12 +56,31 @@
           <div class="preview-tile"><div class="preview-tile-ico tone-green"><i class="ti ti-circle-check"></i></div><div class="preview-tile-val">7</div><div class="preview-tile-lbl">Delivered</div></div>
           <div class="preview-tile"><div class="preview-tile-ico tone-teal"><i class="ti ti-currency-dollar"></i></div><div class="preview-tile-val">$614</div><div class="preview-tile-lbl">Spend</div></div>
         </div>
-        <div class="preview-row"><div class="preview-row-ico"><img src="/assets/product-box.png" alt=""/></div><div class="preview-row-info"><div class="preview-row-name">Charizard ex Booster Box</div><div class="preview-row-meta">Pokémon Center · Jul 2</div></div><span class="preview-pill amber">Shipped</span></div>
-        <div class="preview-row"><div class="preview-row-ico"><i class="ti ti-cards"></i></div><div class="preview-row-info"><div class="preview-row-name">151 Elite Trainer Box</div><div class="preview-row-meta">Target · Jun 29</div></div><span class="preview-pill green">Delivered</span></div>
-        <div class="preview-row"><div class="preview-row-ico"><img src="/assets/product-card.png" alt=""/></div><div class="preview-row-info"><div class="preview-row-name">Prismatic Evolutions Case</div><div class="preview-row-meta">Amazon · Jun 24</div></div><span class="preview-pill blue">Ordered</span></div>
+        <!-- Live orders ticker — same seamless-loop technique as .landing-stores-grid
+             (row set duplicated below, translateY 0 → -50%) but on the Y axis so it
+             reads as a live activity feed inside the fixed-height card viewport. -->
+        <div class="preview-ticker-viewport">
+          <div class="preview-ticker-track">
+            <div class="preview-row"><div class="preview-row-ico"><img src="/assets/product-box.png" alt=""/></div><div class="preview-row-info"><div class="preview-row-name">Charizard ex Booster Box</div><div class="preview-row-meta">Pokémon Center · Jul 2</div></div><span class="preview-pill amber">Shipped</span></div>
+            <div class="preview-row"><div class="preview-row-ico"><i class="ti ti-cards"></i></div><div class="preview-row-info"><div class="preview-row-name">151 Elite Trainer Box</div><div class="preview-row-meta">Target · Jun 29</div></div><span class="preview-pill green">Delivered</span></div>
+            <div class="preview-row"><div class="preview-row-ico"><img src="/assets/product-card.png" alt=""/></div><div class="preview-row-info"><div class="preview-row-name">Prismatic Evolutions Case</div><div class="preview-row-meta">Amazon · Jun 24</div></div><span class="preview-pill blue">Ordered</span></div>
+            <div class="preview-row"><div class="preview-row-ico"><i class="ti ti-award"></i></div><div class="preview-row-info"><div class="preview-row-name">Charizard VMAX Graded PSA 10</div><div class="preview-row-meta">eBay · Jun 20</div></div><span class="preview-pill green">Delivered</span></div>
+            <div class="preview-row"><div class="preview-row-ico"><i class="ti ti-box-seam"></i></div><div class="preview-row-info"><div class="preview-row-name">Surging Sparks Booster Bundle</div><div class="preview-row-meta">TCGPlayer · Jun 15</div></div><span class="preview-pill amber">Shipped</span></div>
+            <div class="preview-row"><div class="preview-row-ico"><i class="ti ti-package"></i></div><div class="preview-row-info"><div class="preview-row-name">Pikachu Collector Tin</div><div class="preview-row-meta">Mattel Creations · Jun 10</div></div><span class="preview-pill purple">Pre-order</span></div>
+            <div class="preview-row"><div class="preview-row-ico"><i class="ti ti-chess-king"></i></div><div class="preview-row-info"><div class="preview-row-name">Van Gogh Pikachu Pin Set</div><div class="preview-row-meta">TikTok Shop · Jun 5</div></div><span class="preview-pill green">Delivered</span></div>
+            <!-- Duplicate set — required for the seamless infinite-scroll loop -->
+            <div class="preview-row" aria-hidden="true"><div class="preview-row-ico"><img src="/assets/product-box.png" alt=""/></div><div class="preview-row-info"><div class="preview-row-name">Charizard ex Booster Box</div><div class="preview-row-meta">Pokémon Center · Jul 2</div></div><span class="preview-pill amber">Shipped</span></div>
+            <div class="preview-row" aria-hidden="true"><div class="preview-row-ico"><i class="ti ti-cards"></i></div><div class="preview-row-info"><div class="preview-row-name">151 Elite Trainer Box</div><div class="preview-row-meta">Target · Jun 29</div></div><span class="preview-pill green">Delivered</span></div>
+            <div class="preview-row" aria-hidden="true"><div class="preview-row-ico"><img src="/assets/product-card.png" alt=""/></div><div class="preview-row-info"><div class="preview-row-name">Prismatic Evolutions Case</div><div class="preview-row-meta">Amazon · Jun 24</div></div><span class="preview-pill blue">Ordered</span></div>
+            <div class="preview-row" aria-hidden="true"><div class="preview-row-ico"><i class="ti ti-award"></i></div><div class="preview-row-info"><div class="preview-row-name">Charizard VMAX Graded PSA 10</div><div class="preview-row-meta">eBay · Jun 20</div></div><span class="preview-pill green">Delivered</span></div>
+            <div class="preview-row" aria-hidden="true"><div class="preview-row-ico"><i class="ti ti-box-seam"></i></div><div class="preview-row-info"><div class="preview-row-name">Surging Sparks Booster Bundle</div><div class="preview-row-meta">TCGPlayer · Jun 15</div></div><span class="preview-pill amber">Shipped</span></div>
+            <div class="preview-row" aria-hidden="true"><div class="preview-row-ico"><i class="ti ti-package"></i></div><div class="preview-row-info"><div class="preview-row-name">Pikachu Collector Tin</div><div class="preview-row-meta">Mattel Creations · Jun 10</div></div><span class="preview-pill purple">Pre-order</span></div>
+            <div class="preview-row" aria-hidden="true"><div class="preview-row-ico"><i class="ti ti-chess-king"></i></div><div class="preview-row-info"><div class="preview-row-name">Van Gogh Pikachu Pin Set</div><div class="preview-row-meta">TikTok Shop · Jun 5</div></div><span class="preview-pill green">Delivered</span></div>
+          </div>
+        </div>
       </div>
     </div>
-    <p class="preview-caption">A simplified look at your dashboard once your inbox is connected — real orders, real tracking, updated every time you scan or sync.</p>
+    <p class="preview-caption">A simplified look at your dashboard once your inbox is connected — real orders, real tracking, updated live every time you scan or sync.</p>
   </div>
 
   <div class="landing-stores reveal pop-delay-6">
@@ -112,11 +131,11 @@
   </div>
 
   <div class="landing-preview2">
-    <div class="preview2-text reveal">
+    <div class="preview2-text reveal reveal-left">
       <h2>See where your money actually goes</h2>
       <p>Average delivery time, on-time rate, monthly spend, and a category breakdown — computed live from your real order history, not a spreadsheet you have to maintain.</p>
     </div>
-    <div class="preview-frame preview2-frame reveal pop-delay-1">
+    <div class="preview-frame preview2-frame reveal reveal-right pop-delay-1">
       <div class="preview-chrome"><span></span><span></span><span></span></div>
       <div class="preview-body">
         <div class="preview-tiles" style="grid-template-columns:repeat(3,1fr);margin-bottom:18px;">
@@ -133,12 +152,12 @@
     </div>
   </div>
 
-  <div class="landing-faq reveal">
-    <h2>Questions</h2>
-    <div class="faq-item"><h3>Is my email password safe?</h3><p>Yes — it's encrypted at rest (AES-256). Scanning works by searching your inbox for order, shipping, tracking, and receipt-related subject lines — it doesn't read your personal messages.</p></div>
-    <div class="faq-item"><h3>Which email providers work?</h3><p>Gmail, iCloud, and Outlook all work today, plus any custom IMAP provider.</p></div>
-    <div class="faq-item"><h3>Is it free?</h3><p>Yes, ShipmentScope is currently free to use while it's in beta.</p></div>
-    <div class="faq-item"><h3>Do I have to enter orders manually?</h3><p>No — connect your inbox once and new orders are detected automatically. You can also add one manually any time.</p></div>
+  <div class="landing-faq">
+    <h2 class="reveal">Questions</h2>
+    <div class="faq-item reveal pop-delay-1"><h3>Is my email password safe?</h3><p>Yes — it's encrypted at rest (AES-256). Scanning works by searching your inbox for order, shipping, tracking, and receipt-related subject lines — it doesn't read your personal messages.</p></div>
+    <div class="faq-item reveal pop-delay-2"><h3>Which email providers work?</h3><p>Gmail, iCloud, and Outlook all work today, plus any custom IMAP provider.</p></div>
+    <div class="faq-item reveal pop-delay-3"><h3>Is it free?</h3><p>Yes, ShipmentScope is currently free to use while it's in beta.</p></div>
+    <div class="faq-item reveal pop-delay-4"><h3>Do I have to enter orders manually?</h3><p>No — connect your inbox once and new orders are detected automatically. You can also add one manually any time.</p></div>
   </div>
 
   <div class="landing-cta reveal">

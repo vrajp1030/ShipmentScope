@@ -478,19 +478,21 @@ function rOrders(){
   }
 
   // Crash-proof: one bad order can never blank the whole list.
-  el.innerHTML=filtered.map(o=>{ try{ return orderCardHTML(o); }catch(e){ console.error('card render error',o,e); return ''; } }).join('')+
+  el.innerHTML=filtered.map((o,i)=>{ try{ return orderCardHTML(o,i); }catch(e){ console.error('card render error',o,e); return ''; } }).join('')+
     '<div class="list-end" style="grid-column:1/-1;">You\'ve reached the end! 🚀</div>';
 }
 
 function carrierClass(c){c=(c||'').toLowerCase();if(c.includes('ups'))return'c-ups';if(c.includes('fedex'))return'c-fedex';if(c.includes('usps'))return'c-usps';if(c.includes('dhl'))return'c-dhl';return'';}
-function orderCardHTML(o){
+function orderCardHTML(o,i){
   const cat=CATS[o.cat]||CATS.other;
   const hasEmail=!!(o.emailHtml||o.emailText);
   const hasNote=!!(o.notes&&o.notes.trim());
   const delBar=deliveryProgress(o);
   const trackHtml=o.trackingUrl?'<a class="track-link '+carrierClass(o.carrier)+'" href="'+o.trackingUrl+'" target="_blank" onclick="event.stopPropagation()"><i class="ti ti-truck" style="font-size:11px;"></i>'+escHtml(o.carrier||'Track')+'</a>':'';
   const oicoInner=isSafeImageUrl(o.image)?'<img src="'+escAttr(o.image)+'" alt="" loading="lazy" onerror="this.parentElement.innerHTML=\''+cat.e.replace(/'/g,"\\'")+'\';"/>':cat.e;
-  return'<div class="ocard'+(o.status==='cancelled'?' cx':'')+'" onclick="openOrderDetail(\''+o.id+'\')">'+
+  // Entrance stagger caps at the first 10 cards so long lists don't leave late cards waiting.
+  const delay=Math.min(i||0,10)*18;
+  return'<div class="ocard'+(o.status==='cancelled'?' cx':'')+'" style="animation-delay:'+delay+'ms;" onclick="openOrderDetail(\''+o.id+'\')">'+
     '<div class="ocard-top">'+
       '<div class="oico '+cat.c+'">'+oicoInner+'</div>'+
       '<div class="ocard-info">'+

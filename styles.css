@@ -111,7 +111,14 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .dash-title{font-family:var(--font-display);font-size:24px;font-weight:500;letter-spacing:normal;color:var(--txt);}
 .dash-sub{font-size:12px;color:var(--txt3);font-weight:500;margin-top:2px;}
 .metric-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;}
-.mtile{background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:9px 11px;display:flex;flex-direction:column;gap:4px;transition:transform .2s var(--ease-pop),border-color .15s ease,box-shadow .2s ease;}
+@keyframes mtileIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+.mtile{background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:9px 11px;display:flex;flex-direction:column;gap:4px;transition:transform .2s var(--ease-pop),border-color .15s ease,box-shadow .2s ease;opacity:0;animation:mtileIn .4s var(--ease-out) both;}
+.mtile:nth-child(1){animation-delay:.03s;}
+.mtile:nth-child(2){animation-delay:.06s;}
+.mtile:nth-child(3){animation-delay:.09s;}
+.mtile:nth-child(4){animation-delay:.12s;}
+.mtile:nth-child(5){animation-delay:.15s;}
+.mtile:nth-child(6){animation-delay:.18s;}
 .mtile:hover{transform:translateY(-3px);border-color:var(--brd2);box-shadow:var(--glow-card);}
 .mt-ico{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;}
 .mt-val{font-size:21px;font-weight:700;letter-spacing:-.8px;color:var(--txt);line-height:1;font-variant-numeric:tabular-nums;}
@@ -132,7 +139,8 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 /* MAIN CONTENT */
 .main{grid-column:2;grid-row:3;overflow-y:auto;display:flex;flex-direction:column;}
 .pane{display:none;padding:20px;padding-bottom:56px;flex:1;}
-.pane.on{display:flex;flex-direction:column;}
+.pane.on{display:flex;flex-direction:column;animation:paneIn .3s var(--ease-out) both;}
+@keyframes paneIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
 
 /* TOAST — transitions (not a one-shot animation) so it animates smoothly
    both appearing AND disappearing, from a single .show class toggle. */
@@ -238,7 +246,8 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 }
 
 /* ORDER CARD */
-.ocard{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:12px;cursor:pointer;transition:border-color .12s,box-shadow .12s;}
+@keyframes cardIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+.ocard{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;padding:12px;cursor:pointer;transition:border-color .12s,box-shadow .12s,transform .2s var(--ease-pop);opacity:0;animation:cardIn .28s var(--ease-out) both;}
 .ocard:hover{border-color:var(--accent);background:var(--bg3);transform:translateY(-3px);box-shadow:var(--glow-card);}
 .skeleton-card{cursor:default;pointer-events:none;}
 .skeleton-card:hover{transform:none;box-shadow:none;border-color:var(--brd);background:var(--bg2);}
@@ -367,6 +376,10 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .pop-in{animation:popIn .7s cubic-bezier(.2,.8,.25,1) both;}
 .reveal{opacity:0;transform:translateY(20px);transition:opacity var(--dur-slow) var(--ease-out),transform var(--dur-slow) var(--ease-out);}
 .reveal.revealed{opacity:1;transform:translateY(0);}
+/* Directional variants for split layouts (text/visual side by side) — same
+   .reveal opacity+revealed lifecycle, just a different start transform. */
+.reveal.reveal-left{transform:translateX(-24px);}
+.reveal.reveal-right{transform:translateX(24px);}
 .pop-delay-1{animation-delay:.08s;transition-delay:.08s;}
 .pop-delay-2{animation-delay:.16s;transition-delay:.16s;}
 .pop-delay-3{animation-delay:.24s;transition-delay:.24s;}
@@ -375,7 +388,10 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .pop-delay-6{animation-delay:.48s;transition-delay:.48s;}
 
 /* PRODUCT PREVIEW MOCKUP */
-.landing-preview{max-width:760px;margin:0 auto 84px;padding:0 24px;perspective:1400px;}
+.landing-preview{max-width:760px;margin:0 auto 84px;padding:0 24px;perspective:1400px;position:relative;}
+/* Ambient glow standing in for a generated background image — same radial-gradient
+   technique as .hero-orb, positioned behind the frame instead of the hero. */
+.landing-preview::before{content:'';position:absolute;top:10%;left:50%;width:70%;height:80%;transform:translateX(-50%);background:radial-gradient(circle,rgba(102,58,243,.16),transparent 70%);filter:blur(40px);z-index:-1;pointer-events:none;}
 .preview-frame{background:var(--bg2);border:1px solid var(--brd2);border-radius:12px;overflow:hidden;box-shadow:inset 0 1px 1px 0 rgba(199,211,234,0.12),inset 0 24px 48px 0 rgba(199,211,234,0.05),0 24px 32px 0 rgba(6,6,14,0.7);transition:transform .4s ease,border-color .4s ease;transform:rotateX(2deg);}
 .preview-frame:hover{transform:perspective(1400px) rotateX(0deg) scale(1.015);border-color:var(--accent);}
 .preview-chrome{display:flex;gap:6px;padding:12px 16px;border-bottom:1px solid var(--brd);}
@@ -386,20 +402,29 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .preview-tile-ico{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;margin-bottom:8px;}
 .preview-tile-val{font-size:17px;font-weight:700;color:var(--txt);}
 .preview-tile-lbl{font-size:9.5px;font-weight:600;color:var(--txt3);text-transform:uppercase;letter-spacing:.4px;}
+/* Orders ticker — vertical counterpart to .landing-stores-grid: the row set
+   is duplicated in the markup so translateY 0 → -50% loops seamlessly, with
+   an edge-fade mask standing in for a hard clip at the viewport top/bottom. */
+.preview-ticker-viewport{max-height:176px;overflow:hidden;-webkit-mask-image:linear-gradient(180deg,transparent,#000 14%,#000 86%,transparent);mask-image:linear-gradient(180deg,transparent,#000 14%,#000 86%,transparent);}
+.preview-ticker-track{display:flex;flex-direction:column;animation:previewTicker 26s linear infinite;}
+.preview-ticker-track:hover{animation-play-state:paused;}
+@keyframes previewTicker{from{transform:translateY(0);}to{transform:translateY(-50%);}}
 .preview-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--brd);}
 .preview-row-ico{width:30px;height:30px;border-radius:6px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;overflow:hidden;}
 .preview-row-ico img{width:100%;height:100%;object-fit:cover;}
 .preview-row-info{flex:1;min-width:0;}
 .preview-row-name{font-size:12.5px;font-weight:600;color:var(--txt);}
 .preview-row-meta{font-size:11px;color:var(--txt3);margin-top:1px;}
-.preview-pill{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:6px;white-space:nowrap;}
+.preview-pill{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:6px;white-space:nowrap;flex-shrink:0;}
 .preview-pill.amber{background:var(--amber-d);color:var(--amber);}
 .preview-pill.green{background:var(--green-d);color:var(--green);}
 .preview-pill.blue{background:var(--blue-d);color:var(--blue);}
+.preview-pill.purple{background:var(--purple-d);color:var(--purple);}
 .preview-caption{text-align:center;font-size:12px;color:var(--txt3);margin-top:16px;max-width:440px;margin-left:auto;margin-right:auto;line-height:1.6;}
 
 /* SECOND PREVIEW — text + visual side by side */
-.landing-preview2{max-width:1020px;margin:0 auto 84px;padding:0 24px;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;}
+.landing-preview2{max-width:1020px;margin:0 auto 84px;padding:0 24px;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;position:relative;}
+.landing-preview2::before{content:'';position:absolute;top:-10%;right:5%;width:46%;height:120%;background:radial-gradient(circle,rgba(79,191,176,.14),transparent 70%);filter:blur(46px);z-index:-1;pointer-events:none;}
 .preview2-text h2{font-family:var(--font-display);font-size:44px;font-weight:500;letter-spacing:normal;line-height:1.16;margin-bottom:14px;color:var(--txt);}
 .preview2-text p{font-size:14px;color:var(--txt3);line-height:1.7;max-width:400px;}
 .preview2-frame{margin:0;}
