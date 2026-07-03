@@ -14,7 +14,7 @@ let nid=Math.max(0,...orders.map(o=>o.id||0))+1;
 let fil='all',timeFil='all',catFil='all',efil='all',selCat='other',showArchived=false;
 let serverOnline=false;
 let cY=new Date().getFullYear(),cM=new Date().getMonth(),cSel=new Date().getDate();
-let charts=[],currentEmailId=null,pollTimerId=null;
+let charts=[],dashCharts=[],currentEmailId=null,pollTimerId=null;
 
 const $=id=>document.getElementById(id);
 function save(){
@@ -317,18 +317,28 @@ function rDashboardSide(){
   const fastestCarrier=carrierAvgs[0]?carrierAvgs[0][0]:null;
 
   lblEl.textContent='';
-  miniEl.innerHTML=[
-    ['ti-clock-hour-4','var(--blue)','Avg. delivery time',avgDays!=null?avgDays+' days':'–'],
-    ['ti-circle-check','var(--green)','On-time delivery',onTimePct!=null?onTimePct+'%':'–'],
-    ['ti-alert-triangle','var(--amber)','Delay rate',delayRate+'%'],
-    ['ti-package','var(--purple)','Total orders',orders.length],
-    ['ti-building-store','var(--teal)','Top store',topStore?(topStore.length>16?topStore.slice(0,15)+'…':topStore):'–'],
-    ['ti-bolt','var(--coral)','Fastest carrier',fastestCarrier||'–'],
-  ].map(([ico,color,lbl,val])=>
-    '<div class="insight-mini"><div class="insight-mini-ico" style="background:'+color+'22;color:'+color+';"><i class="ti '+ico+'"></i></div><div class="insight-mini-info"><div class="insight-mini-lbl">'+lbl+'</div></div><div class="insight-mini-val">'+val+'</div></div>'
-  ).join('');
+  // On-time delivery gets a real gauge (canvas, drawn below via Chart.js)
+  // instead of another flat text row — everything else stays a quick-scan list.
+  miniEl.innerHTML=
+    '<div class="mini-gauge-row"><div class="mini-gauge-box"><canvas id="dashGaugeChart"></canvas></div>'+
+    '<div class="mini-gauge-info"><div class="insight-mini-lbl">On-time delivery</div>'+
+    '<div class="mini-gauge-sub">'+(deliveredWithEta.length?deliveredWithEta.length+' delivered order'+(deliveredWithEta.length===1?'':'s')+' with an ETA':'No delivered orders with an ETA yet')+'</div></div></div>'+
+    [
+      ['ti-clock-hour-4','var(--blue)','Avg. delivery time',avgDays!=null?avgDays+' days':'–'],
+      ['ti-alert-triangle','var(--amber)','Delay rate',delayRate+'%'],
+      ['ti-package','var(--purple)','Total orders',orders.length],
+      ['ti-building-store','var(--teal)','Top store',topStore?(topStore.length>16?topStore.slice(0,15)+'…':topStore):'–'],
+      ['ti-bolt','var(--coral)','Fastest carrier',fastestCarrier||'–'],
+    ].map(([ico,color,lbl,val])=>
+      '<div class="insight-mini"><div class="insight-mini-ico" style="background:'+color+'22;color:'+color+';"><i class="ti '+ico+'"></i></div><div class="insight-mini-info"><div class="insight-mini-lbl">'+lbl+'</div></div><div class="insight-mini-val">'+val+'</div></div>'
+    ).join('');
 
   actEl.innerHTML=renderActivityList(getRecentActivity(6));
+
+  loadChartJs().then(()=>{
+    dashCharts.forEach(c=>{try{c.destroy();}catch(_){}});dashCharts=[];
+    renderGaugeChart('dashGaugeChart',onTimePct,'#663af3','rgba(255,255,255,0.08)',dashCharts);
+  }).catch(e=>console.error('Chart.js failed to load',e));
 }
 
 // ── GLOBAL SEARCH (header) ────────────────────────────────────────
@@ -990,7 +1000,7 @@ function importAll(){
 // Only 2 widgets show by default (per user request) — the rest are opt-in via
 // "Add widget". Each widget knows how to render itself and, if it has a chart,
 // how to initialize it after the HTML is in the DOM.
-const DEFAULT_INSIGHT_WIDGETS=['monthly-chart','category-chart'];
+const DEFAULT_INSIGHT_WIDGETS=['activity-trend','status-donut','on-time-gauge','monthly-chart'];
 const INSIGHT_WIDGETS={
   'monthly-chart':{label:'Monthly spend trend',
     html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'monthly-chart\')" title="Remove" aria-label="Remove monthly spend chart widget"><i class="ti ti-x"></i></button><h3>'+ctx.monthRangeLbl+' <span>'+ctx.monthYearLbl+' spend</span></h3><div style="height:200px;position:relative;"><canvas id="monthChart"></canvas></div></div>',
@@ -1021,6 +1031,44 @@ const INSIGHT_WIDGETS={
   },
   'trophy':{label:'Top category highlight',
     html:ctx=>'<div class="trophy"><button class="widget-remove" onclick="removeWidget(\'trophy\')" title="Remove" aria-label="Remove top category widget"><i class="ti ti-x"></i></button><div class="trophy-ico"><i class="ti ti-trophy" style="font-size:22px;color:var(--amber);"></i></div><div class="trophy-info"><h4>'+ctx.topCat[0].charAt(0).toUpperCase()+ctx.topCat[0].slice(1)+'</h4><p>Top category</p></div><div class="trophy-num">'+ctx.topCat[1]+'</div></div>'
+  },
+  'activity-trend':{label:'Order activity trend',
+    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'activity-trend\')" title="Remove" aria-label="Remove order activity trend widget"><i class="ti ti-x"></i></button><h3>Order activity <span>last 8 weeks</span></h3><div style="height:200px;position:relative;"><canvas id="activityChart"></canvas></div></div>',
+    after:ctx=>{
+      const ac=document.getElementById('activityChart');if(!ac)return;
+      const gctx=ac.getContext('2d');
+      const gradient=gctx.createLinearGradient(0,0,0,200);
+      gradient.addColorStop(0,'rgba(102,58,243,0.35)');
+      gradient.addColorStop(1,'rgba(102,58,243,0)');
+      charts.push(new Chart(ac,{
+        type:'line',
+        data:{labels:ctx.activityTrend.map(w=>w.label),datasets:[{data:ctx.activityTrend.map(w=>w.count),borderColor:'#663af3',backgroundColor:gradient,fill:true,tension:.4,pointRadius:0,pointHoverRadius:4,pointBackgroundColor:'#663af3',borderWidth:2.5}]},
+        options:{responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw+' order'+(c.raw===1?'':'s')}}},
+          scales:{x:{grid:{display:false},ticks:{color:'#8a8a94',font:{size:10}}},y:{beginAtZero:true,ticks:{stepSize:1,color:'#8a8a94',font:{size:11}},grid:{color:'rgba(255,255,255,0.04)'},border:{display:false}}},
+          animation:{duration:900,easing:'easeOutQuart'}
+        }
+      }));
+    }
+  },
+  'status-donut':{label:'Orders by status (donut)',
+    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'status-donut\')" title="Remove" aria-label="Remove orders by status donut widget"><i class="ti ti-x"></i></button><h3>Orders by status <span>'+ctx.t+' total</span></h3><div style="height:200px;position:relative;"><canvas id="statusDonutChart"></canvas></div></div>',
+    after:ctx=>{
+      const labels=Object.keys(SL).filter(k=>ctx.byStatus[k]);
+      const dc=document.getElementById('statusDonutChart');if(!dc)return;
+      charts.push(new Chart(dc,{
+        type:'doughnut',
+        data:{labels:labels.map(k=>SL[k]),datasets:[{data:labels.map(k=>ctx.byStatus[k]),backgroundColor:labels.map(k=>SC[k]),borderWidth:0,hoverOffset:6}]},
+        options:{responsive:true,maintainAspectRatio:false,cutout:'62%',
+          plugins:{legend:{position:'right',labels:{color:'#c3c3cc',font:{size:11},boxWidth:10,padding:10}},tooltip:{callbacks:{label:c=>c.label+': '+c.raw}}},
+          animation:{animateRotate:true,animateScale:true,duration:900,easing:'easeOutQuart'}
+        }
+      }));
+    }
+  },
+  'on-time-gauge':{label:'On-time delivery gauge',
+    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'on-time-gauge\')" title="Remove" aria-label="Remove on-time delivery gauge widget"><i class="ti ti-x"></i></button><h3>On-time delivery</h3><div style="height:200px;position:relative;display:flex;align-items:center;justify-content:center;"><div style="width:150px;height:150px;position:relative;"><canvas id="insightsGaugeChart"></canvas></div></div></div>',
+    after:ctx=>{ renderGaugeChart('insightsGaugeChart',ctx.onTimePct,'#663af3','rgba(255,255,255,0.08)',charts); }
   },
 };
 function getActiveWidgets(){
@@ -1066,6 +1114,55 @@ function loadChartJs(){
   });
   return _chartJsPromise;
 }
+
+// Circular progress gauge (doughnut with a cutout + a center-text plugin) —
+// shared by the dashboard side panel and the Insights "on-time delivery"
+// widget so both read the same real onTimePct rather than a fake static ring.
+function renderGaugeChart(canvasId,pct,color,trackColor,targetArray,centerLabel){
+  const el=document.getElementById(canvasId);if(!el)return;
+  const val=pct==null?0:pct;
+  const centerTextPlugin={
+    id:'gaugeCenterText',
+    afterDraw(chart){
+      const {ctx,chartArea:{left,right,top,bottom}}=chart;
+      const cx=(left+right)/2, cy=(top+bottom)/2;
+      ctx.save();
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle=getComputedStyle(document.body).getPropertyValue('--txt')||'#fff';
+      ctx.font='700 16px Inter, sans-serif';
+      ctx.fillText(pct==null?'–':pct+'%', cx, cy);
+      ctx.restore();
+    }
+  };
+  targetArray.push(new Chart(el,{
+    type:'doughnut',
+    data:{datasets:[{data:[val,Math.max(0,100-val)],backgroundColor:[color,trackColor],borderWidth:0}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,cutout:'76%',
+      plugins:{legend:{display:false},tooltip:{enabled:false}},
+      animation:{animateRotate:true,animateScale:true,duration:900,easing:'easeOutQuart'}
+    },
+    plugins:[centerTextPlugin]
+  }));
+}
+
+// Weekly order-activity trend (last 8 weeks, Sunday-anchored) — feeds the
+// Insights line/area chart from real order dates, no hardcoded periods.
+function computeActivityTrend(){
+  const weeks=[];
+  const now=new Date();
+  for(let i=7;i>=0;i--){
+    const end=new Date(now.getFullYear(),now.getMonth(),now.getDate()-i*7);
+    const start=new Date(end); start.setDate(end.getDate()-6);
+    const count=orders.filter(o=>{
+      if(!o.date)return false;
+      const d=new Date(o.date+'T00:00:00');
+      return d>=start&&d<=end;
+    }).length;
+    weeks.push({label:(start.getMonth()+1)+'/'+start.getDate(),count});
+  }
+  return weeks;
+}
 async function rInsights(){
   const t=orders.length;
   if(!t){$('ins-inner').innerHTML='<div class="empty-s"><i class="ti ti-chart-bar"></i><p>Add orders to see insights</p></div>';return;}
@@ -1095,7 +1192,20 @@ async function rInsights(){
   const monthYearLbl=monthlyData[0].year===monthlyData[2].year?String(monthlyData[0].year):monthlyData[0].year+'–'+monthlyData[2].year;
   const thisMonthSpend=mSpend(nowD.getMonth(),nowD.getFullYear());
 
-  const ctx={t,fmt,spend,cxSpend,avg,dlRate,byCat,catSpend,storeSpend,byStore,byStatus,topCat,topStores,monthlyData,monthRangeLbl,monthYearLbl,thisMonthSpend};
+  // Same on-time definition rDashboardSide uses: delivered orders that had an ETA,
+  // compared against when they actually landed.
+  const deliveredWithEta=orders.filter(o=>o.status==='delivered'&&o.expectedDelivery);
+  let onTimePct=null;
+  if(deliveredWithEta.length){
+    const onTime=deliveredWithEta.filter(o=>{
+      const actualDate=(o.history&&o.history.length)?o.history[o.history.length-1].date:o.date;
+      return actualDate&&new Date(actualDate+'T00:00:00')<=new Date(o.expectedDelivery+'T00:00:00');
+    }).length;
+    onTimePct=Math.round((onTime/deliveredWithEta.length)*100);
+  }
+  const activityTrend=computeActivityTrend();
+
+  const ctx={t,fmt,spend,cxSpend,avg,dlRate,byCat,catSpend,storeSpend,byStore,byStatus,topCat,topStores,monthlyData,monthRangeLbl,monthYearLbl,thisMonthSpend,onTimePct,activityTrend};
 
   $('ins-p').textContent=t+' orders · '+Object.keys(byStore).length+' stores · $'+fmt(spend)+' total';
 
