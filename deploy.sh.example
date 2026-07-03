@@ -1,0 +1,9 @@
+#!/bin/bash
+# Copy this file's exports into your shell (or an untracked local .env-style
+# script) before running ./deploy.sh — never commit real values.
+
+export DEPLOY_KEY=~/Downloads/your-key.pem
+export DEPLOY_HOST=ubuntu@your.server.ip
+export DEPLOY_REMOTE_DIR=/home/ubuntu/shipmentscope
+
+./deploy.sh

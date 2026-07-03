@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>ShipmentScope — Developer Stats</title>
+<meta name="robots" content="noindex,nofollow"/>
+<link rel="icon" type="image/png" href="/assets/logo.png"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Outfit:wght@400..600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#05060f;--bg2:#2f343e;--bg3:#3a3f4a;--bg4:#454b58;
+  --brd:rgba(63,73,89,0.6);--brd2:rgba(186,215,247,0.16);
+  --txt:#d8ecf8;--txt2:#c7d3ea;--txt3:rgba(129,137,155,0.85);
+  --accent:#663af3;--accent-d:rgba(102,58,243,0.16);
+  --green:#4fbf8b;--amber:#e0a742;--red:#f2665e;--purple:#9c8cec;
+  --font-display:'Outfit',ui-sans-serif,system-ui,sans-serif;
+}
+body{background:var(--bg);color:var(--txt);font-family:'Inter',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;padding:32px 20px;}
+.wrap{max-width:1000px;margin:0 auto;}
+.hdr{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+.hdr-title{font-family:var(--font-display);font-size:21px;font-weight:500;letter-spacing:normal;}
+.hdr-title .accent{color:var(--accent);}
+.sub{font-size:13px;color:var(--txt3);font-weight:500;margin-bottom:32px;}
+.section-lbl{font-size:11px;font-weight:600;color:var(--txt3);text-transform:uppercase;letter-spacing:1px;margin:32px 0 12px;}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;}
+.tile{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;box-shadow:var(--glow-hairline, inset 0 0 0 1px rgba(186,215,247,0.12));padding:20px;}
+.tile-val{font-family:var(--font-display);font-size:34px;font-weight:500;letter-spacing:0;font-variant-numeric:tabular-nums;color:var(--txt);}
+.tile-lbl{font-size:13px;font-weight:600;color:var(--txt2);margin-top:6px;}
+.tile-sub{font-size:12px;color:var(--txt3);margin-top:3px;}
+.tile.accent .tile-val{color:var(--accent);}
+.tile.green .tile-val{color:var(--green);}
+.tile.amber .tile-val{color:var(--amber);}
+.tile.purple .tile-val{color:var(--purple);}
+.status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;}
+.status-tile{background:var(--bg2);border:1px solid var(--brd);border-radius:6px;padding:14px;}
+.status-val{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;}
+.status-lbl{font-size:11px;font-weight:500;color:var(--txt3);text-transform:uppercase;letter-spacing:.4px;margin-top:4px;}
+.empty{text-align:center;padding:80px 20px;color:var(--txt3);}
+.empty i{font-size:36px;display:block;margin-bottom:10px;}
+.err{background:rgba(242,102,94,.13);border:1px solid rgba(242,102,94,.3);color:var(--red);border-radius:6px;padding:14px 16px;font-size:13px;font-weight:500;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <img src="/assets/logo.png" width="26" height="26" alt="ShipmentScope" style="border-radius:22%;display:block;"/>
+    <div class="hdr-title">Shipment<span class="accent">Scope</span> — Developer Stats</div>
+  </div>
+  <div class="sub">Real usage across every account on this install. No per-user data shown — aggregates only.</div>
+  <div id="content"><div class="empty"><i class="ti ti-loader-2"></i><p>Loading…</p></div></div>
+</div>
+<script>
+async function load(){
+  const el=document.getElementById('content');
+  try{
+    const res=await fetch('/api/admin/stats');
+    const data=await res.json();
+    if(!data.ok){el.innerHTML='<div class="err">'+(data.message||'Could not load stats.')+'</div>';return;}
+    const s=data.stats;
+    if(!s.totalUsers){el.innerHTML='<div class="empty"><i class="ti ti-chart-bar"></i><p>No accounts yet — stats will appear once people sign up.</p></div>';return;}
+    el.innerHTML=
+      '<div class="tiles">'+
+        '<div class="tile accent"><div class="tile-val">'+s.totalUsers.toLocaleString()+'</div><div class="tile-lbl">Total accounts</div><div class="tile-sub">'+s.signups7d+' new this week</div></div>'+
+        '<div class="tile green"><div class="tile-val">'+s.totalOrders.toLocaleString()+'</div><div class="tile-lbl">Orders tracked</div><div class="tile-sub">'+s.avgOrdersPerUser+' avg per account</div></div>'+
+        '<div class="tile amber"><div class="tile-val">$'+s.totalValue.toLocaleString()+'</div><div class="tile-lbl">Order value tracked</div><div class="tile-sub">excludes cancelled</div></div>'+
+        '<div class="tile purple"><div class="tile-val">'+s.totalAccounts.toLocaleString()+'</div><div class="tile-lbl">Email accounts connected</div><div class="tile-sub">across all users</div></div>'+
+      '</div>'+
+      '<div class="section-lbl">Activity</div>'+
+      '<div class="tiles">'+
+        '<div class="tile"><div class="tile-val">'+s.active7d.toLocaleString()+'</div><div class="tile-lbl">Active in last 7 days</div><div class="tile-sub">logged in at least once</div></div>'+
+        '<div class="tile"><div class="tile-val">'+s.signups30d.toLocaleString()+'</div><div class="tile-lbl">New accounts, last 30 days</div></div>'+
+      '</div>'+
+      '<div class="section-lbl">Orders by status</div>'+
+      '<div class="status-grid">'+
+        Object.entries(s.statusBreakdown).map(([k,v])=>'<div class="status-tile"><div class="status-val">'+v.toLocaleString()+'</div><div class="status-lbl">'+k+'</div></div>').join('')+
+      '</div>';
+  }catch(e){
+    el.innerHTML='<div class="err">Could not reach the server. Is it running?</div>';
+  }
+}
+load();
+</script>
+</body>
+</html>
