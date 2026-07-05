@@ -5,17 +5,21 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>ShipmentScope</title>
 <meta name="description" content="ShipmentScope scans your inbox and turns order confirmation emails into one clean dashboard — track every Pokémon order, every store, automatically."/>
-<meta name="theme-color" content="#05060f"/>
+<meta name="theme-color" content="#060613"/>
 <meta property="og:type" content="website"/>
 <meta property="og:title" content="ShipmentScope"/>
 <meta property="og:description" content="Track every order. Every store. Automatically."/>
-<meta property="og:image" content="/assets/logo.png"/>
-<link rel="icon" type="image/png" href="/assets/logo.png"/>
-<link rel="apple-touch-icon" href="/assets/logo.png"/>
+<meta property="og:image" content="/assets/og-image.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="/assets/og-image.png"/>
+<link rel="icon" type="image/png" href="/assets/favicon.png"/>
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png"/>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Outfit:wght@400..600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500..900&family=Sora:wght@300..800&family=JetBrains+Mono:wght@400..800&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="/styles.css"/>
 </head>
 <body>
@@ -23,6 +27,10 @@
 <div class="landing-screen" id="landing-screen">
   <div class="offline-banner" id="offline-banner" style="display:none;">Server not running — start it with <b>Start PokéOrders.command</b>, then reload this page.</div>
   <div class="landing-nav">
+    <div class="landing-nav-brand">
+      <img src="/assets/favicon.png" width="28" height="28" alt="ShipmentScope"/>
+      <span><span class="brand-dark">Shipment</span><span class="brand-accent">Scope</span></span>
+    </div>
     <div class="landing-nav-actions">
       <button class="landing-btn-ghost" onclick="goToAuth('login')">Log in</button>
       <button class="landing-btn-primary" onclick="goToAuth('signup')">Sign up</button>
@@ -36,7 +44,6 @@
     <div class="landing-hero-logo pop-in">
       <img src="/assets/logo.png" width="88" height="88" alt="ShipmentScope" style="display:block;"/>
     </div>
-    <div class="landing-hero-wordmark pop-in pop-delay-1"><span class="brand-dark">Shipment</span><span class="brand-accent">Scope</span></div>
     <div class="landing-eyebrow pop-in pop-delay-1">Inbox-powered tracking</div>
     <h1 class="pop-in pop-delay-2"><span class="headline-rotate" id="headline-rotate">Track every order.<br>Every store. Automatically.</span></h1>
     <p class="pop-in pop-delay-3">ShipmentScope scans your inbox and turns order confirmation emails into one clean dashboard — no manual entry, no spreadsheets, no missed packages.</p>
@@ -170,10 +177,11 @@
 
 <!-- AUTH SCREEN — shown when the visitor clicks Log in / Sign up from the landing page -->
 <div class="auth-screen" id="auth-screen" style="display:none;">
+  <div class="aurora"><div class="blob blob1"></div><div class="blob blob2"></div><div class="blob blob3"></div></div>
   <div class="auth-card">
     <div class="auth-back" onclick="showLandingScreen()"><i class="ti ti-arrow-left"></i>Back to home</div>
     <div class="auth-brand">
-      <img src="/assets/logo.png" width="30" height="30" alt="ShipmentScope" style="border-radius:22%;display:block;"/>
+      <img class="brand-mark" src="/assets/favicon.png" width="30" height="30" alt="ShipmentScope" style="display:block;"/>
       <div class="hdr-title"><span class="brand-dark">Shipment</span><span class="brand-accent">Scope</span></div>
     </div>
     <p class="auth-tagline">Track with clarity. Deliver with confidence.</p>
@@ -200,12 +208,12 @@
   <div class="hdr">
     <button class="mobile-menu-btn" onclick="toggleMobileSidebar()" title="Menu" aria-label="Open menu"><i class="ti ti-menu-2"></i></button>
     <div class="hdr-left">
-      <img class="brand-mark" src="/assets/logo.png" width="26" height="26" alt="ShipmentScope" style="border-radius:22%;display:block;"/>
+      <img class="brand-mark" src="/assets/favicon.png" width="26" height="26" alt="ShipmentScope" style="display:block;"/>
       <div><div class="hdr-title"><span class="brand-dark">Shipment</span><span class="brand-accent">Scope</span></div><div class="hdr-sub">Track with clarity. Deliver with confidence.</div></div>
     </div>
     <div class="hdr-search">
       <i class="ti ti-search"></i>
-      <input id="srch" placeholder="Search orders, tracking numbers, emails…" oninput="onGlobalSearch()" onfocus="this.blur();openCommandPalette();"/>
+      <input id="srch" placeholder="Search inventory, orders, stores…" oninput="onGlobalSearch()" onfocus="this.blur();openCommandPalette();"/>
       <kbd class="kbd-hint" id="search-kbd-hint">⌘K</kbd>
     </div>
     <div class="hdr-right">
@@ -222,8 +230,9 @@
   <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleMobileSidebar()"></div>
   <div class="sidebar" id="sidebar">
     <div class="sidebar-section" style="padding-top:4px;">Navigation</div>
-    <div class="nav-item on" data-tab="orders" onclick="clearFilters();sw('orders');setActiveNav(this)"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
-    <div class="nav-item" data-tab="orders" onclick="clearFilters();sw('orders');setActiveNav(this)"><i class="ti ti-package"></i>Orders<span class="nav-badge" id="nb-cancelled" style="display:none;"></span></div>
+    <div class="nav-item on" data-tab="dashboard" onclick="sw('dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
+    <div class="nav-item" data-tab="orders" onclick="clearFilters();sw('orders')"><i class="ti ti-package"></i>Orders<span class="nav-badge" id="nb-cancelled" style="display:none;"></span></div>
+    <div class="nav-item" data-tab="inventory" onclick="sw('inventory')"><i class="ti ti-building-warehouse"></i>Inventory</div>
     <div class="nav-item" data-tab="emails" onclick="sw('emails')"><i class="ti ti-mail"></i>Emails</div>
     <div class="nav-item" data-tab="tracking" onclick="sw('tracking')"><i class="ti ti-truck-delivery"></i>Tracking</div>
     <div class="nav-item" data-tab="calendar" onclick="sw('calendar')"><i class="ti ti-calendar"></i>Calendar</div>
@@ -240,28 +249,42 @@
     <div class="sidebar-section">This period</div>
     <div class="sidebar-stats">
       <div class="ss-range-wrap">
-        <select class="ss-range" id="ss-range" onchange="rStats()">
+        <select class="ss-range" id="ss-range" onchange="onPeriodChange()">
           <option value="3m" id="ss-range-opt-3m"></option>
+          <option value="year" id="ss-range-opt-year"></option>
           <option value="all">All time</option>
+          <option value="custom">Custom range…</option>
         </select>
         <i class="ti ti-chevron-down ss-range-chevron"></i>
       </div>
+      <div class="ss-custom-range" id="ss-custom-range">
+        <div class="ss-custom-range-inner">
+          <input type="date" class="ss-custom-input" id="ss-custom-from" onchange="rStats()"/>
+          <span class="ss-custom-sep">→</span>
+          <input type="date" class="ss-custom-input" id="ss-custom-to" onchange="rStats()"/>
+        </div>
+      </div>
       <div class="ss-total-row"><span class="ss-total" id="ss-total">$0</span><span class="ss-trend" id="ss-trend"></span></div>
-      <div class="ss-row"><div class="ss-label" id="ss-lbl-0"></div><div class="ss-val" id="ss-val-0">$0</div></div>
-      <div class="ss-row"><div class="ss-label" id="ss-lbl-1"></div><div class="ss-val" id="ss-val-1">$0</div></div>
-      <div class="ss-row"><div class="ss-label" id="ss-lbl-2"></div><div class="ss-val" id="ss-val-2">$0</div></div>
+      <div class="ss-breakdown" id="ss-breakdown">
+        <div class="ss-breakdown-inner">
+          <div class="ss-row"><div class="ss-label" id="ss-lbl-0"></div><div class="ss-val" id="ss-val-0">$0</div></div>
+          <div class="ss-row"><div class="ss-label" id="ss-lbl-1"></div><div class="ss-val" id="ss-val-1">$0</div></div>
+          <div class="ss-row"><div class="ss-label" id="ss-lbl-2"></div><div class="ss-val" id="ss-val-2">$0</div></div>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- DASHBOARD HEADER + METRIC TILES -->
   <div class="hero-bar">
+    <div class="aurora"><div class="blob blob1"></div><div class="blob blob2"></div><div class="blob blob3"></div></div>
     <div class="dash-head">
       <div>
         <div class="dash-title" id="hero-title">Dashboard</div>
         <div class="dash-sub" id="hero-sub">Track and manage your Pokémon orders across every store</div>
       </div>
     </div>
-    <div class="metric-tiles">
+    <div class="metric-tiles" id="hero-metric-tiles">
       <div class="mtile"><div class="mt-ico tone-blue"><i class="ti ti-package"></i></div><div class="mt-val" id="h-total">0</div><div class="mt-lbl">Total</div><div class="mt-bar"><div class="mt-bar-fill" id="h-total-bar" style="background:var(--blue);"></div></div></div>
       <div class="mtile"><div class="mt-ico tone-purple"><i class="ti ti-shopping-bag"></i></div><div class="mt-val" id="h-ordered">0</div><div class="mt-lbl">Ordered</div><div class="mt-bar"><div class="mt-bar-fill" id="h-ordered-bar" style="background:var(--purple);"></div></div></div>
       <div class="mtile"><div class="mt-ico tone-amber"><i class="ti ti-truck-delivery"></i></div><div class="mt-val" id="h-sh">0</div><div class="mt-lbl">In transit</div><div class="mt-bar"><div class="mt-bar-fill" id="h-sh-bar" style="background:var(--amber);"></div></div></div>
@@ -274,10 +297,70 @@
   <!-- MAIN CONTENT -->
   <div class="main">
 
+    <!-- DASHBOARD (overview only — no order list here, that's the Orders tab) -->
+    <div id="pane-dashboard" class="pane on">
+      <div class="dash-grid2">
+        <div class="dash-main2">
+          <div class="dash-stat-row">
+            <div class="dtile"><div class="dt-ico tone-purple"><i class="ti ti-package"></i></div><div class="dt-lbl">Total orders</div><div class="dt-val" id="d-total">0</div><div class="mt-bar"><div class="mt-bar-fill" id="d-total-bar" style="background:var(--accent);"></div></div><div class="dt-delta" id="d-total-delta"></div></div>
+            <div class="dtile"><div class="dt-ico tone-blue"><i class="ti ti-truck-delivery"></i></div><div class="dt-lbl">In transit</div><div class="dt-val" id="d-sh">0</div><div class="mt-bar"><div class="mt-bar-fill" id="d-sh-bar" style="background:var(--blue);"></div></div><div class="dt-delta" id="d-sh-delta"></div></div>
+            <div class="dtile"><div class="dt-ico tone-green"><i class="ti ti-check"></i></div><div class="dt-lbl">Delivered</div><div class="dt-val" id="d-dl">0</div><div class="mt-bar"><div class="mt-bar-fill" id="d-dl-bar" style="background:var(--green);"></div></div><div class="dt-delta" id="d-dl-delta"></div></div>
+            <div class="dtile"><div class="dt-ico tone-red"><i class="ti ti-x"></i></div><div class="dt-lbl">Cancelled</div><div class="dt-val" id="d-cx">0</div><div class="mt-bar"><div class="mt-bar-fill" id="d-cx-bar" style="background:var(--red);"></div></div><div class="dt-delta" id="d-cx-delta"></div></div>
+            <div class="dtile"><div class="dt-ico tone-teal"><i class="ti ti-currency-dollar"></i></div><div class="dt-lbl">Total spend</div><div class="dt-val" id="d-sp">$0</div><div class="mt-bar"><div class="mt-bar-fill" id="d-sp-bar" style="background:var(--teal);"></div></div><div class="dt-delta" id="d-sp-delta"></div></div>
+          </div>
+          <div class="chart-card">
+            <h3>Spending overview
+              <span class="rb-sort-wrap">
+                <select class="rb-sort" id="dash-spend-range" onchange="rDashboard()">
+                  <option value="3">This period</option>
+                  <option value="6">Last 6 months</option>
+                  <option value="12">Last 12 months</option>
+                </select>
+                <i class="ti ti-chevron-down rb-sort-chevron"></i>
+              </span>
+            </h3>
+            <div class="dash-spend-total" id="dash-spend-total">$0</div>
+            <div class="dash-spend-sub">Total spend</div>
+            <div class="dash-spend-chart" id="dash-spend-chart"></div>
+          </div>
+          <div class="dash-bottom-row">
+            <div class="chart-card">
+              <h3>Top stores</h3>
+              <p class="dash-stores-note" id="dash-stores-note"></p>
+              <div class="dash-store-logos" id="dash-top-stores"></div>
+            </div>
+            <div class="chart-card">
+              <h3>Quick actions</h3>
+              <div class="dash-qa-row">
+                <button class="dash-qa" onclick="openM()"><i class="ti ti-plus"></i><span>Add order</span></button>
+                <button class="dash-qa" onclick="sw('sync')"><i class="ti ti-refresh"></i><span>Sync emails</span></button>
+                <button class="dash-qa" onclick="openCheckoutCard()"><i class="ti ti-credit-card"></i><span>Create checkout card</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="dash-side2">
+          <div class="chart-card">
+            <h3>At a glance <i class="ti ti-chart-line" style="color:var(--accent);font-size:15px;"></i></h3>
+            <div id="dash-glance"></div>
+            <button class="rb-btn" style="width:100%;justify-content:center;margin-top:10px;" onclick="sw('insights')"><i class="ti ti-arrow-up-right" style="font-size:13px;"></i> View full insights</button>
+          </div>
+          <div class="chart-card">
+            <h3>On-time delivery</h3>
+            <div class="mini-gauge-row" style="border-bottom:none;padding-bottom:2px;margin-bottom:0;"><div class="mini-gauge-box"><canvas id="dashGaugeChart"></canvas></div>
+            <div class="mini-gauge-info"><div class="mini-gauge-sub" id="dash-gauge-sub"></div></div></div>
+          </div>
+          <div class="chart-card">
+            <h3>Recent activity</h3>
+            <div id="dash-activity"></div>
+          </div>
+        </div>
+      </div>
+      <div class="dash-footer">ShipmentScope · shipmentscope.app</div>
+    </div>
+
     <!-- ORDERS -->
-    <div id="pane-orders" class="pane on">
-      <div class="dash-grid">
-      <div class="dash-main">
+    <div id="pane-orders" class="pane">
       <div id="cx-zone"></div>
       <div id="dup-zone"></div>
       <div class="toolbar">
@@ -294,7 +377,7 @@
         <div class="chip" id="stab-preorder" onclick="sf('preorder')">Pre-order<span class="chip-ct" id="ct-preorder"></span></div>
         <div class="rb-spacer"></div>
         <div style="position:relative;">
-          <button class="hdr-icon-btn" id="filter-toggle" style="width:30px;height:30px;font-size:13px;" onclick="toggleFilters()" title="Filters &amp; archived" aria-label="Filters and archived orders"><i class="ti ti-list"></i></button>
+          <button class="filter-toggle" id="filter-toggle" onclick="toggleFilters()" title="Filters &amp; archived" aria-label="Filters and archived orders"><i class="ti ti-adjustments-horizontal"></i>Filter</button>
         </div>
       </div>
       <!-- Extra filters + archived view: hidden until the list icon is clicked, so the screen stays clean -->
@@ -337,28 +420,96 @@
         <span class="result-spent" id="result-spent"></span>
         <button class="rb-clear" id="clear-filters" onclick="clearFilters()" style="display:none;"><i class="ti ti-x" style="font-size:12px;"></i>Clear filters</button>
         <span class="rb-spacer"></span>
-        <select class="rb-sort" id="sort-sel" onchange="rOrders()" title="Sort orders">
-          <option value="date-desc">Newest first</option>
-          <option value="date-asc">Oldest first</option>
-          <option value="price-desc">Price: high → low</option>
-          <option value="price-asc">Price: low → high</option>
-          <option value="store">Store A → Z</option>
-        </select>
+        <div class="rb-sort-wrap">
+          <select class="rb-sort" id="sort-sel" onchange="rOrders()" title="Sort orders">
+            <option value="date-desc">Newest first</option>
+            <option value="date-asc">Oldest first</option>
+            <option value="price-desc">Price: high → low</option>
+            <option value="price-asc">Price: low → high</option>
+            <option value="store">Store A → Z</option>
+          </select>
+          <i class="ti ti-chevron-down rb-sort-chevron"></i>
+        </div>
         <button class="rb-btn" onclick="exportCSV()" title="Download all orders as a spreadsheet"><i class="ti ti-download" style="font-size:13px;"></i>Export</button>
       </div>
       <div class="orders-grid" id="olist"></div>
+    </div>
+
+    <!-- INVENTORY -->
+    <div id="pane-inventory" class="pane">
+      <div class="inv-actionbar">
+        <button class="rb-btn" id="inv-refresh-btn" disabled title="Connect a price source in Settings to auto-refresh market values"><i class="ti ti-refresh" style="font-size:13px;"></i> Refresh prices</button>
+        <button class="rb-btn" onclick="exportInventoryCSV()" title="Download inventory as CSV"><i class="ti ti-download" style="font-size:13px;"></i> Export</button>
+        <button class="add-btn" onclick="openInvModal()"><i class="ti ti-plus"></i>Add item</button>
       </div>
-      <div class="dash-side">
-        <div class="chart-card">
-          <h3>Insights <span id="dash-period-lbl"></span></h3>
-          <div id="dash-insights-mini"></div>
-          <button class="rb-btn" style="width:100%;justify-content:center;margin-top:10px;" onclick="sw('insights')"><i class="ti ti-arrow-up-right" style="font-size:13px;"></i> View full insights</button>
-        </div>
-        <div class="chart-card">
-          <h3>Recent activity</h3>
-          <div id="dash-activity"></div>
-        </div>
+      <div class="inv-stat-row">
+        <div class="inv-stat"><div class="inv-stat-top"><span class="inv-stat-lbl">Total Items</span><div class="inv-stat-ico tone-purple"><i class="ti ti-box"></i></div></div><div class="inv-stat-val" id="inv-k-items">0</div><div class="inv-stat-sub">All inventory</div></div>
+        <div class="inv-stat"><div class="inv-stat-top"><span class="inv-stat-lbl">Total Invested</span><div class="inv-stat-ico tone-blue"><i class="ti ti-wallet"></i></div></div><div class="inv-stat-val" id="inv-k-invested">$0</div><div class="inv-stat-sub">Total amount spent</div></div>
+        <div class="inv-stat"><div class="inv-stat-top"><span class="inv-stat-lbl">Market Value</span><div class="inv-stat-ico tone-green"><i class="ti ti-chart-line"></i></div></div><div class="inv-stat-val" id="inv-k-market">$0</div><div class="inv-stat-sub">Current market value</div></div>
+        <div class="inv-stat"><div class="inv-stat-top"><span class="inv-stat-lbl">Total Profit</span><div class="inv-stat-ico tone-teal"><i class="ti ti-currency-dollar"></i></div></div><div class="inv-stat-val" id="inv-k-profit">$0</div><div class="inv-stat-sub" id="inv-k-profit-sub">Total profit</div></div>
+        <div class="inv-stat"><div class="inv-stat-top"><span class="inv-stat-lbl">Profit Margin</span><div class="inv-stat-ico tone-amber"><i class="ti ti-percentage"></i></div></div><div class="inv-stat-val" id="inv-k-margin">0%</div><div class="inv-stat-sub">Overall margin</div></div>
       </div>
+      <div class="dash-grid2">
+        <div class="dash-main2">
+          <div class="chart-card inv-table-card">
+            <div class="inv-toolbar">
+              <div class="inv-search-wrap"><i class="ti ti-search"></i><input id="inv-search" placeholder="Search items…" oninput="invPage=1;rInventory()"/></div>
+              <div class="rb-sort-wrap"><select class="rb-sort" id="inv-cat-fil" onchange="invPage=1;rInventory()"><option value="all">All Categories</option><option value="singles">Singles</option><option value="sealed">Sealed</option><option value="graded">Graded</option><option value="figures">Figures</option><option value="accessories">Accessories</option><option value="other">Other</option></select><i class="ti ti-chevron-down rb-sort-chevron"></i></div>
+              <div class="rb-sort-wrap"><select class="rb-sort" id="inv-cond-fil" onchange="invPage=1;rInventory()"><option value="all">All Conditions</option><option value="NM">Near Mint</option><option value="LP">Lightly Played</option><option value="MP">Moderately Played</option><option value="HP">Heavily Played</option><option value="DMG">Damaged</option><option value="Sealed">Sealed</option><option value="Graded">Graded</option></select><i class="ti ti-chevron-down rb-sort-chevron"></i></div>
+              <div class="rb-sort-wrap"><select class="rb-sort" id="inv-store-fil" onchange="invPage=1;rInventory()"><option value="all">All Stores</option></select><i class="ti ti-chevron-down rb-sort-chevron"></i></div>
+              <div class="rb-sort-wrap" style="margin-left:auto;"><select class="rb-sort" id="inv-sort" onchange="rInventory()"><option value="name">Name A→Z</option><option value="profit-desc">Profit: high→low</option><option value="profit-asc">Profit: low→high</option><option value="pct-desc">Margin: high→low</option><option value="value-desc">Market value: high→low</option><option value="qty-desc">Quantity: high→low</option></select><i class="ti ti-arrows-sort rb-sort-chevron"></i></div>
+            </div>
+            <div class="chips" id="inv-chips" style="margin-bottom:12px;">
+              <div class="chip on" id="ic-all" onclick="invFilter('all')">All Items<span class="chip-ct" id="ic-ct-all"></span></div>
+              <div class="chip green" id="ic-in-stock" onclick="invFilter('in-stock')">In Stock<span class="chip-ct" id="ic-ct-in-stock"></span></div>
+              <div class="chip amber" id="ic-low-stock" onclick="invFilter('low-stock')">Low Stock<span class="chip-ct" id="ic-ct-low-stock"></span></div>
+              <div class="chip blue" id="ic-sold" onclick="invFilter('sold')">Sold<span class="chip-ct" id="ic-ct-sold"></span></div>
+              <div class="chip" id="ic-on-hold" onclick="invFilter('on-hold')">On Hold<span class="chip-ct" id="ic-ct-on-hold"></span></div>
+            </div>
+            <div class="inv-table-scroll">
+              <div class="inv-thead">
+                <div class="inv-c-item">Item</div>
+                <div class="inv-c-cond">+/-</div>
+                <div class="inv-c-num">Qty</div>
+                <div class="inv-c-num">Cost (ea)</div>
+                <div class="inv-c-num">Total cost</div>
+                <div class="inv-c-num">Market (ea)</div>
+                <div class="inv-c-num">Market value</div>
+                <div class="inv-c-num">Profit (ea)</div>
+                <div class="inv-c-num">Profit %</div>
+                <div class="inv-c-status">Status</div>
+                <div class="inv-c-menu"></div>
+              </div>
+              <div id="inv-table"></div>
+            </div>
+            <div class="inv-pager" id="inv-pager"></div>
+          </div>
+        </div>
+        <div class="dash-side2">
+          <div class="chart-card">
+            <h3>Profit &amp; Loss Overview
+              <span class="rb-sort-wrap"><select class="rb-sort" id="inv-pnl-range" onchange="rInventory()"><option value="all">All time</option><option value="6">Last 6 months</option><option value="3">Last 3 months</option></select><i class="ti ti-chevron-down rb-sort-chevron"></i></span>
+            </h3>
+            <div class="inv-pnl-total" id="inv-pnl-total">+$0</div>
+            <div class="dash-spend-sub">Total profit</div>
+            <div style="height:150px;position:relative;margin-top:10px;"><canvas id="invPnlChart"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <h3>Profit by Category</h3>
+            <div class="inv-cat-row">
+              <div class="inv-cat-donut"><canvas id="invCatChart"></canvas></div>
+              <div class="inv-cat-legend" id="inv-cat-legend"></div>
+            </div>
+          </div>
+          <div class="chart-card">
+            <h3>Top Performing Items</h3>
+            <div id="inv-top"></div>
+          </div>
+          <div class="chart-card">
+            <h3>Low Stock Alerts</h3>
+            <div id="inv-lowstock"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -395,6 +546,7 @@
     <!-- CALENDAR -->
     <div id="pane-calendar" class="pane">
       <div class="cal-hdr">
+        <div class="aurora"><div class="blob blob1"></div><div class="blob blob2"></div></div>
         <div class="cal-nav">
           <button class="cal-nav-btn" onclick="cPrev()" aria-label="Previous month"><i class="ti ti-chevron-left"></i></button>
           <div><div class="cal-month" id="cm-lbl"></div><div class="cal-sub" id="cm-sub"></div></div>
@@ -449,14 +601,22 @@
           </div>
           <div class="webhook-box">
             <h5><i class="ti ti-webhook" style="font-size:12px;"></i> Your webhook URL</h5>
-            <div class="webhook-url" id="webhook-url-display">Log in to see your unique webhook URL</div>
+            <div class="webhook-url-row">
+              <div class="webhook-url" id="webhook-url-display">Log in to see your unique webhook URL</div>
+              <button class="hdr-icon-btn" onclick="copyWebhookUrl()" title="Copy webhook URL" aria-label="Copy webhook URL"><i class="ti ti-copy"></i></button>
+            </div>
             <div class="webhook-note">Add to Shopify: Settings → Notifications → Webhooks. This URL is unique to your account — sends order updates instantly without scanning.</div>
+          </div>
+          <div class="chart-card" style="margin-top:12px;">
+            <h3>Recent syncs</h3>
+            <div id="sync-history"></div>
           </div>
         </div>
         <div class="sync-col">
           <div class="scan-box">
             <div class="scan-box-h"><i class="ti ti-wand"></i><h4>Scan inbox for orders</h4></div>
-            <p id="scan-p">Connect an account then scan. Finds order, shipping, delivery, cancellation and refund emails from any store. Scan window and poll interval are configurable in Settings.</p>
+            <p id="scan-p">Connect an account then scan. Finds order, shipping, delivery, cancellation and refund emails from any store — food, restaurant and grocery receipts are skipped automatically. Scan window and poll interval are configurable in Settings.</p>
+            <div class="scan-meta" id="scan-meta"></div>
             <button class="scan-run" id="scan-btn" onclick="runScan()" disabled>Scan inbox</button>
             <div id="det-zone"></div>
           </div>
@@ -498,7 +658,8 @@
     <div class="email-footer">
       <button class="ef-close" onclick="closeDetail()">Close</button>
       <button class="ef-copy" id="dt-view-email-btn" onclick="viewEmailFromDetail()"><i class="ti ti-mail" style="font-size:13px;"></i> View original email</button>
-      <button class="oact-btn" id="dt-archive-btn" onclick="toggleArchiveFromDetail()" style="margin-left:auto;"><i class="ti ti-archive" style="font-size:13px;"></i> Archive</button>
+      <button class="oact-btn" onclick="addToInventoryFromDetail()" style="margin-left:auto;"><i class="ti ti-building-warehouse" style="font-size:13px;"></i> Add to inventory</button>
+      <button class="oact-btn" id="dt-archive-btn" onclick="toggleArchiveFromDetail()"><i class="ti ti-archive" style="font-size:13px;"></i> Archive</button>
       <button class="oact-btn danger" onclick="deleteFromDetail()"><i class="ti ti-trash" style="font-size:13px;"></i> Delete</button>
     </div>
   </div>
@@ -581,7 +742,9 @@
         <div class="sm-row">
           <div class="sm-row-info"><h4>Landing tab</h4><p>Which screen opens when you launch the app</p></div>
           <select class="sm-input" id="default-tab" onchange="setDefaultTab(this.value)" style="width:140px;">
+            <option value="dashboard">Dashboard</option>
             <option value="orders">Orders</option>
+            <option value="inventory">Inventory</option>
             <option value="emails">Emails</option>
             <option value="tracking">Tracking</option>
             <option value="calendar">Calendar</option>
@@ -693,12 +856,42 @@
   </div>
 </div>
 
+<!-- ADD / EDIT INVENTORY ITEM -->
+<div class="modal-overlay" id="inv-modal">
+  <div class="modal">
+    <div class="mhdr"><h2 id="inv-modal-title">Add item</h2><button class="mclose" onclick="closeInvModal()" aria-label="Close"><i class="ti ti-x"></i></button></div>
+    <div class="mbody">
+      <div class="mfg"><label>Item name</label><input id="iv-name" placeholder="e.g. Charizard ex"/></div>
+      <div class="mfg"><div class="mf2"><div class="mfg"><label>Set / subtitle</label><input id="iv-set" placeholder="e.g. Pokémon 151"/></div><div class="mfg"><label>Store / source</label><input id="iv-store" placeholder="e.g. TCGPlayer"/></div></div></div>
+      <div class="mfg"><label>Category</label>
+        <div class="cchips">
+          <div class="cchip" data-ic="singles" onclick="pcInv(this)"><span class="ce"><i class="ti ti-cards"></i></span><span class="ct">Singles</span></div>
+          <div class="cchip" data-ic="sealed" onclick="pcInv(this)"><span class="ce"><i class="ti ti-box-seam"></i></span><span class="ct">Sealed</span></div>
+          <div class="cchip" data-ic="graded" onclick="pcInv(this)"><span class="ce"><i class="ti ti-award"></i></span><span class="ct">Graded</span></div>
+          <div class="cchip" data-ic="figures" onclick="pcInv(this)"><span class="ce"><i class="ti ti-chess-king"></i></span><span class="ct">Figures</span></div>
+          <div class="cchip" data-ic="accessories" onclick="pcInv(this)"><span class="ce"><i class="ti ti-briefcase"></i></span><span class="ct">Accessories</span></div>
+          <div class="cchip" data-ic="other" onclick="pcInv(this)"><span class="ce"><i class="ti ti-package"></i></span><span class="ct">Other</span></div>
+        </div>
+      </div>
+      <div class="mfg"><div class="mf2"><div class="mfg"><label>Condition</label>
+        <select id="iv-cond"><option value="NM">Near Mint</option><option value="LP">Lightly Played</option><option value="MP">Moderately Played</option><option value="HP">Heavily Played</option><option value="DMG">Damaged</option><option value="Sealed">Sealed</option><option value="Graded">Graded</option></select>
+      </div><div class="mfg"><label>Quantity</label><input id="iv-qty" type="number" min="0" value="1"/></div></div></div>
+      <div class="mfg"><div class="mf2"><div class="mfg"><label>Cost each ($)</label><input id="iv-cost" type="number" min="0" step="0.01" placeholder="0.00"/></div><div class="mfg"><label>Market value each ($)</label><input id="iv-market" type="number" min="0" step="0.01" placeholder="Optional — set later"/></div></div></div>
+      <div class="mfg"><div class="mf2"><div class="mfg"><label>Status</label>
+        <select id="iv-status"><option value="in-stock">In Stock</option><option value="on-hold">On Hold</option><option value="sold">Sold</option></select>
+      </div><div class="mfg"><label>Low-stock alert at</label><input id="iv-threshold" type="number" min="0" value="3"/></div></div></div>
+      <div class="mfg"><div class="mf2"><div class="mfg"><label>Acquired date</label><input id="iv-date" type="date"/></div><div class="mfg"><label>&nbsp;</label><input id="iv-notes" placeholder="Notes (optional)"/></div></div></div>
+    </div>
+    <div class="mftr"><button class="mc" onclick="closeInvModal()">Cancel</button><button class="ms" onclick="saveInvItem()" id="inv-modal-save">Add item</button></div>
+  </div>
+</div>
+
 <!-- COMMAND PALETTE (⌘K) -->
 <div class="modal-overlay cmdk-overlay" id="cmdk-overlay" style="z-index:500;" onclick="if(event.target===this)closeCommandPalette()">
   <div class="cmdk-panel">
     <div class="cmdk-input-row">
       <i class="ti ti-search"></i>
-      <input id="cmdk-input" placeholder="Search orders, or jump to a page…" oninput="renderCommandResults(this.value)"/>
+      <input id="cmdk-input" placeholder="Search inventory, orders, or jump to a page…" oninput="renderCommandResults(this.value)"/>
       <kbd class="kbd-hint">ESC</kbd>
     </div>
     <div class="cmdk-results" id="cmdk-results"></div>
@@ -727,10 +920,10 @@
       <div class="card-bg-panel">
         <label class="card-bg-panel-lbl">Background</label>
         <div class="card-bg-row">
-          <div class="card-bg-swatch sel" data-bg="0" style="background:radial-gradient(circle at 28% 22%,rgba(212,166,58,.35),transparent 70%),#121214;" onclick="setCardBg(0,this)" title="Midnight Gold"></div>
-          <div class="card-bg-swatch" data-bg="1" style="background:radial-gradient(circle at 28% 22%,rgba(79,142,247,.32),transparent 70%),#121214;" onclick="setCardBg(1,this)" title="Slate Blue"></div>
-          <div class="card-bg-swatch" data-bg="2" style="background:radial-gradient(circle at 28% 22%,rgba(61,220,132,.28),transparent 70%),#121214;" onclick="setCardBg(2,this)" title="Emerald"></div>
-          <div class="card-bg-swatch" data-bg="3" style="background:radial-gradient(circle at 28% 22%,rgba(255,255,255,.14),transparent 70%),#121214;" onclick="setCardBg(3,this)" title="Graphite"></div>
+          <div class="card-bg-swatch sel" data-bg="0" style="background:radial-gradient(circle at 28% 22%,rgba(124,92,255,.4),transparent 70%),#0d0d1c;" onclick="setCardBg(0,this)" title="Violet (Aurora)"></div>
+          <div class="card-bg-swatch" data-bg="1" style="background:radial-gradient(circle at 28% 22%,rgba(110,179,247,.35),transparent 70%),#0d0d1c;" onclick="setCardBg(1,this)" title="Azure"></div>
+          <div class="card-bg-swatch" data-bg="2" style="background:radial-gradient(circle at 28% 22%,rgba(61,220,132,.28),transparent 70%),#0d0d1c;" onclick="setCardBg(2,this)" title="Emerald"></div>
+          <div class="card-bg-swatch" data-bg="3" style="background:radial-gradient(circle at 28% 22%,rgba(255,255,255,.14),transparent 70%),#0d0d1c;" onclick="setCardBg(3,this)" title="Graphite"></div>
           <label class="card-bg-swatch card-bg-upload" title="Upload your own image">
             <i class="ti ti-upload"></i>
             <input type="file" accept="image/*" style="display:none;" onchange="onCardImageUpload(event)"/>

@@ -185,6 +185,20 @@ const CASES = [
     subject:'Someone replied to your comment in r/PokemonTCG',
     body:'u/trainer replied: nice pull on that Charizard! Reply or view thread.',
     shouldKeep:false }, // social, not an order
+
+  // ---- Regression: "tracking number" in an ORDER CONFIRMATION must not read as shipped ----
+  // The confirmation only promises a tracking number will follow; there's no ship verb,
+  // so this must classify as 'ordered', not 'shipped' (weak-signal guard in detectStatus).
+  { from:'TCGplayer <orders@tcgplayer.com>',
+    subject:'Thank you for your order',
+    body:'Thanks for your purchase! Order #TCG556677. A tracking number will be emailed to you once your order ships. Total: $88.40',
+    expect:{ status:'ordered', store:'TCGPlayer', price:88.40, orderNum:'TCG556677' }, shouldKeep:true },
+
+  // Companion: a real ship notice with a tracking number AND a ship verb still reads as shipped.
+  { from:'TCGplayer <ship@tcgplayer.com>',
+    subject:'Your order has shipped',
+    body:'Your order has shipped! Tracking number: 9400111899223818500011 via USPS. Order #TCG556677.',
+    expect:{ status:'shipped', store:'TCGPlayer', tracking:'9400111899223818500011', carrier:'USPS' }, shouldKeep:true },
 ];
 
 // ── RUNNER ───────────────────────────────────────────────────────

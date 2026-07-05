@@ -30,6 +30,40 @@ const ALLOWED_STORES = [
   { name: 'Mercari',          domains: ['mercari.com'] },
 ];
 
+// ── FOOD / RESTAURANT / GROCERY EXCLUSION ────────────────────────
+// Meal, restaurant and grocery receipts match every "order/receipt/delivered"
+// keyword but aren't merchandise — this tracker is for resellable goods, so
+// they're dropped before classification. Domain match on the sender does the
+// heavy lifting; the subject phrases catch restaurant POS/ordering platforms
+// that send from their own domains.
+const EXCLUDED_FOOD_DOMAINS = [
+  // delivery platforms
+  'doordash.com','ubereats.com','uber.com','grubhub.com','seamless.com','postmates.com',
+  'instacart.com','gopuff.com','favor.com','trycaviar.com','slicelife.com','deliveroo.com',
+  'skipthedishes.com','toasttab.com','olo.com','chownow.com','ezcater.com','ritual.co',
+  // restaurants & fast food
+  'mcdonalds.com','chipotle.com','dominos.com','pizzahut.com','papajohns.com','littlecaesars.com',
+  'wendys.com','tacobell.com','burgerking.com','kfc.com','chick-fil-a.com','cfahome.com',
+  'starbucks.com','dunkin.com','subway.com','panerabread.com','sweetgreen.com','wingstop.com',
+  'fiveguys.com','shakeshack.com','raisingcanes.com','popeyes.com','sonicdrivein.com',
+  'jimmyjohns.com','jerseymikes.com','zaxbys.com','whataburger.com','culvers.com',
+  'dairyqueen.com','buffalowildwings.com','applebees.com','olivegarden.com','ihop.com','dennys.com',
+  // groceries & meal kits
+  'kroger.com','safeway.com','albertsons.com','publix.com','wegmans.com','heb.com','aldi.us',
+  'shipt.com','freshdirect.com','hellofresh.com','blueapron.com','homechef.com','factor75.com',
+];
+const FOOD_SUBJECT_HINTS = [
+  'your dasher','your driver is','your shopper','your courier','is being prepared',
+  'enjoy your meal','your meal','your food','order is ready for pickup','your table',
+  'meal kit','your groceries','grocery order','restaurant order',
+];
+function isFoodEmail(subject, fromAddr) {
+  const f = (fromAddr||'').toLowerCase();
+  if (EXCLUDED_FOOD_DOMAINS.some(d => f.includes(d))) return true;
+  const s = (subject||'').toLowerCase();
+  return FOOD_SUBJECT_HINTS.some(k => s.includes(k));
+}
+
 const KEYWORDS = {
   ordered:   ['order confirmed','order confirmation','order is confirmed','order received','we received your order','thank you for your order','thank you for your purchase','thanks for your order','thanks for your purchase','thank you for shopping','order placed','purchase confirmed','payment received','receipt for','order acknowledgement','order summary','order #','order number','order no.'],
   shipped:   ['has shipped','your order has shipped','on its way','tracking number','out for delivery','dispatched','package shipped','shipment confirmation','your shipment','your package is on the way','shipped!'],
@@ -133,12 +167,21 @@ function getStoreName(fromAddr, bodyText) {
   return storeNameFromEmail(fromAddr);
 }
 
+// A few "shipped" keywords are weak on their own — "tracking number" in
+// particular appears in plenty of order CONFIRMATIONS ("a tracking number will
+// follow once your order ships"). Those only count as shipped when an actual
+// ship/dispatch verb co-occurs, otherwise they fall through to later buckets
+// (so the email is read as an order, not misflagged shipped).
+const WEAK_SHIPPED = ['tracking number'];
+const SHIP_VERB = /\b(shipp?ed|dispatch(?:ed)?|on its way|out for delivery|has left|label created|in transit)\b/;
 function detectStatus(subject, body) {
   const text = (subject+' '+body).toLowerCase();
   const order = ['delivered','cancelled','shipped','preorder','ordered'];
   for(const status of order){
     for(const word of KEYWORDS[status]){
-      if(text.includes(word)) return status;
+      if(!text.includes(word)) continue;
+      if(status==='shipped' && WEAK_SHIPPED.includes(word) && !SHIP_VERB.test(text)) continue; // weak signal, no ship verb → not shipped
+      return status;
     }
   }
   return null;
@@ -186,6 +229,7 @@ function extractProductImage(html) {
 // Returns null if the email isn't an order/ship/delivery/cancel message.
 // Both the live sync loop AND the test harness call this, so tests reflect reality.
 function classifyEmail(subject, fromAddr, body) {
+  if(isFoodEmail(subject, fromAddr)) return null; // meals/groceries aren't merchandise
   const status = detectStatus(subject, body);
   if(!status) return null;
   const store    = getStoreName(fromAddr, body);
@@ -308,8 +352,10 @@ const DATA_DIR = path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const ORDERS_DIR = path.join(DATA_DIR, 'orders');
 const ACCOUNTS_DIR = path.join(DATA_DIR, 'accounts');
+const INVENTORY_DIR = path.join(DATA_DIR, 'inventory');
+const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 function ensureDir(d){ if(!fs.existsSync(d)) fs.mkdirSync(d,{recursive:true}); }
-ensureDir(DATA_DIR); ensureDir(ORDERS_DIR); ensureDir(ACCOUNTS_DIR);
+ensureDir(DATA_DIR); ensureDir(ORDERS_DIR); ensureDir(ACCOUNTS_DIR); ensureDir(INVENTORY_DIR);
 
 // ── Password hashing (Node's built-in scrypt — no extra dependency needed) ──
 function hashPassword(password, salt) {
@@ -380,9 +426,34 @@ setInterval(()=>{ // sweep old buckets so this map can't grow forever
 // ── Sessions (in-memory, cookie-based — a restart just logs everyone out) ──
 const sessions = new Map();
 const SESSION_TTL = 30*24*60*60*1000; // 30 days
+// Sessions persist to disk so a server restart doesn't log everyone out
+// (they used to live only in memory). Load on boot, prune expired, rewrite.
+function loadSessions(){
+  try{
+    if(fs.existsSync(SESSIONS_FILE)){
+      const obj=JSON.parse(fs.readFileSync(SESSIONS_FILE,'utf8'))||{};
+      const now=Date.now();
+      for(const [token,sess] of Object.entries(obj)){
+        if(sess&&sess.expires>now) sessions.set(token,sess);
+      }
+    }
+  }catch(e){ console.log('Could not load sessions:', e.message); }
+}
+let _sessionsWriteTimer=null;
+function persistSessions(){
+  // Debounced so a burst of logins doesn't hammer the disk.
+  if(_sessionsWriteTimer) return;
+  _sessionsWriteTimer=setTimeout(()=>{
+    _sessionsWriteTimer=null;
+    try{ fs.writeFileSync(SESSIONS_FILE, JSON.stringify(Object.fromEntries(sessions))); }
+    catch(e){ console.log('Could not persist sessions:', e.message); }
+  }, 500);
+}
+loadSessions();
 function createSession(userId){
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(token, { userId, expires: Date.now()+SESSION_TTL });
+  persistSessions();
   return token;
 }
 function parseCookies(str){
@@ -397,7 +468,7 @@ function getSessionUserId(req){
   const token = parseCookies(req.headers.cookie)['sc_session'];
   if(!token) return null;
   const sess = sessions.get(token);
-  if(!sess || sess.expires < Date.now()){ sessions.delete(token); return null; }
+  if(!sess || sess.expires < Date.now()){ sessions.delete(token); persistSessions(); return null; }
   return sess.userId;
 }
 
@@ -410,6 +481,17 @@ function loadOrdersFor(userId){
 function saveOrdersFor(userId, orders){
   try{ fs.writeFileSync(ordersFileFor(userId), JSON.stringify(orders,null,2)); return true; }
   catch(e){ console.log('Could not save orders for user:', e.message); return false; }
+}
+
+// ── Per-user inventory storage (mirrors orders storage above) ──
+function inventoryFileFor(userId){ return path.join(INVENTORY_DIR, userId+'.json'); }
+function loadInventoryFor(userId){
+  try{ const f=inventoryFileFor(userId); if(fs.existsSync(f)) return JSON.parse(fs.readFileSync(f,'utf8'))||[]; }catch(_){}
+  return [];
+}
+function saveInventoryFor(userId, items){
+  try{ fs.writeFileSync(inventoryFileFor(userId), JSON.stringify(items,null,2)); return true; }
+  catch(e){ console.log('Could not save inventory for user:', e.message); return false; }
 }
 
 // ── Per-user IMAP account storage (passwords encrypted at rest) ──
@@ -503,7 +585,7 @@ async function syncImap(config, sinceDate, scanDays) {
       console.log(`Found ${messages.length} candidate messages`);
       let skipped = 0;
       // ── DIAGNOSTICS: count where emails get dropped so we can fix the right gate ──
-      const diag = { noStatus: 0, dup: 0, kept: 0, noStatusSamples: [] };
+      const diag = { noStatus: 0, food: 0, dup: 0, kept: 0, noStatusSamples: [] };
 
       for await(const msg of client.fetch(messages.slice(-1200),{envelope:true,source:true})){
         try{
@@ -512,6 +594,10 @@ async function syncImap(config, sinceDate, scanDays) {
           const fromAddr = parsed.from?.text||'';
           const bodyText = parsed.text||(parsed.html||'').replace(/<[^>]*>/g,' ')||'';
           const htmlBody = parsed.html||'';
+
+          // Food/restaurant/grocery receipts are never merchandise — drop first
+          // so the "not an order" diagnostics don't fill up with meal receipts.
+          if(isFoodEmail(subject, fromAddr)){ skipped++; diag.food++; continue; }
 
           // An email is an "order" if it looks like an order/ship/delivery/cancel
           // message — regardless of which store it's from. Same logic the tests use.
@@ -557,6 +643,7 @@ async function syncImap(config, sinceDate, scanDays) {
       console.log(`Candidate emails fetched : ${Math.min(messages.length,1200)}`);
       console.log(`✓ Kept as orders         : ${diag.kept}`);
       console.log(`✗ Dropped — not an order/ship/delivery email : ${diag.noStatus}`);
+      console.log(`✗ Dropped — food/restaurant/grocery receipt  : ${diag.food}`);
       console.log(`✗ Dropped — duplicate in this scan           : ${diag.dup}`);
       if(diag.noStatusSamples.length){
         console.log('\n— Examples dropped because no order/ship/delivery wording was detected —');
@@ -955,7 +1042,7 @@ li{margin-bottom:6px;}
 
   if(req.method==='POST'&&req.url==='/api/auth/logout'){
     const token=parseCookies(req.headers.cookie)['sc_session'];
-    if(token) sessions.delete(token);
+    if(token){ sessions.delete(token); persistSessions(); }
     res.setHeader('Set-Cookie',sessionCookie('', 0, req));
     sendJSON(res,{ok:true});
     return;
@@ -1074,8 +1161,10 @@ li{margin-bottom:6px;}
       saveUsers(loadUsers().filter(u=>u.id!==userId));
       try{fs.unlinkSync(ordersFileFor(userId));}catch(_){}
       try{fs.unlinkSync(accountsFileFor(userId));}catch(_){}
+      try{fs.unlinkSync(inventoryFileFor(userId));}catch(_){}
       delete newOrdersBuffers[userId];
       for(const [tok,sess] of sessions){ if(sess.userId===userId) sessions.delete(tok); }
+      persistSessions();
       res.setHeader('Set-Cookie',sessionCookie('', 0, req));
       sendJSON(res,{ok:true});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
@@ -1107,6 +1196,21 @@ li{margin-bottom:6px;}
     return;
   }
 
+  // Inventory — same shape as orders: GET loads, POST saves the full list.
+  if(req.method==='GET'&&req.url==='/api/inventory'){
+    sendJSON(res,{ok:true,inventory:loadInventoryFor(userId)});
+    return;
+  }
+  if(req.method==='POST'&&req.url==='/api/inventory'){
+    try{
+      const body=JSON.parse(await readBody(req));
+      const items=Array.isArray(body)?body:(body.inventory||[]);
+      const ok=saveInventoryFor(userId, items);
+      sendJSON(res,{ok,count:items.length});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
+
   // Tracking info
   if(req.method==='GET'&&req.url.startsWith('/api/track/')){
     const tracking=decodeURIComponent(req.url.split('/api/track/')[1]||'');
@@ -1134,4 +1238,5 @@ module.exports = {
   getStoreName, storeNameFromEmail, getAllowedStore,
   extractOrderNum, extractExpectedDelivery, estimateDelivery,
   detectCarrier, detectCategory, classifyEmail, computeEmailId,
+  isFoodEmail,
 };

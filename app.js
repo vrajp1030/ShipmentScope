@@ -7,22 +7,88 @@ const SC={ordered:'#6eb3f7',shipped:'#ffb830',delivered:'#3dd68c',cancelled:'#ff
 const STORE_ICO_DEFAULT='<i class="ti ti-building-store"></i>';
 const API=location.origin;
 
+// ── INVENTORY CONSTANTS ──────────────────────────────────────────
+// Resale-oriented categories (distinct from the order CATS above, which are
+// purchase-oriented). Icons + colors follow the same shape as CATS/CAT_COLORS.
+const INV_CATS={
+  singles:{e:'<i class="ti ti-cards"></i>',label:'Singles'},
+  sealed:{e:'<i class="ti ti-box-seam"></i>',label:'Sealed'},
+  graded:{e:'<i class="ti ti-award"></i>',label:'Graded'},
+  figures:{e:'<i class="ti ti-chess-king"></i>',label:'Figures'},
+  accessories:{e:'<i class="ti ti-briefcase"></i>',label:'Accessories'},
+  other:{e:'<i class="ti ti-package"></i>',label:'Other'},
+};
+const INV_CAT_COLORS={singles:'#c084fc',sealed:'#6eb3f7',graded:'#ffb830',figures:'#3dd68c',accessories:'#ff7f5c',other:'#7878a0'};
+// Card conditions (badge in the table). Sealed/Graded double as condition+category.
+const INV_CONDITIONS={NM:'Near Mint',LP:'Lightly Played',MP:'Moderately Played',HP:'Heavily Played',DMG:'Damaged',Sealed:'Sealed',Graded:'Graded'};
+const INV_STATUS_LABEL={'in-stock':'In Stock','low-stock':'Low Stock','sold':'Sold','on-hold':'On Hold'};
+// Map an order category → the closest inventory category (for "Add from order").
+const ORDER_TO_INV_CAT={packs:'sealed',cards:'singles',graded:'graded',figures:'figures',accessories:'accessories',other:'other'};
+
 // ── STATE ────────────────────────────────────────────────────────
 let orders=JSON.parse(localStorage.getItem('po_orders')||'[]');
+let inventory=JSON.parse(localStorage.getItem('po_inventory')||'[]');
 let settings=JSON.parse(localStorage.getItem('po_settings')||'{"new-order":true,"cancel":true,"dup":true,"delivery":true,"autopoll":true,"desktop":false}');
 let nid=Math.max(0,...orders.map(o=>o.id||0))+1;
+let invId=Math.max(0,...inventory.map(x=>x.id||0))+1;
 let fil='all',timeFil='all',catFil='all',efil='all',selCat='other',showArchived=false;
+let invStatusFil='all',invPage=1,invEditCat='singles';
 let serverOnline=false;
 let cY=new Date().getFullYear(),cM=new Date().getMonth(),cSel=new Date().getDate();
-let charts=[],dashCharts=[],currentEmailId=null,pollTimerId=null;
+let charts=[],dashCharts=[],invCharts=[],currentEmailId=null,pollTimerId=null;
 
 const $=id=>document.getElementById(id);
+// Quota-safe localStorage write. Order/inventory records can carry large
+// embedded email HTML; once the ~5MB localStorage quota is hit, a naive
+// setItem throws and used to crash every save. On overflow we retry with the
+// heavy fields stripped (the server keeps the full copy either way).
+function writeLocalSafe(key,arr,heavyFields){
+  try{ localStorage.setItem(key,JSON.stringify(arr)); return true; }
+  catch(e){
+    try{
+      const slim=arr.map(o=>{const c={...o};(heavyFields||[]).forEach(f=>delete c[f]);return c;});
+      localStorage.setItem(key,JSON.stringify(slim));
+      return true;
+    }catch(_){ console.warn('localStorage full — could not cache '+key+' locally; server copy still saved'); return false; }
+  }
+}
 function save(){
   // 1) browser cache (works offline)  2) durable file on the computer via the server
-  localStorage.setItem('po_orders',JSON.stringify(orders));
+  writeLocalSafe('po_orders',orders,['emailHtml','emailText']);
   try{
     fetch(API+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(orders)}).catch(()=>{});
   }catch(_){}
+}
+function saveInventory(){
+  writeLocalSafe('po_inventory',inventory,['image']);
+  try{
+    fetch(API+'/api/inventory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(inventory)}).catch(()=>{});
+  }catch(_){}
+}
+// Pull the saved inventory file from the server on startup (mirrors loadOrdersFromServer).
+async function loadInventoryFromServer(){
+  try{
+    const res=await fetch(API+'/api/inventory');
+    const data=await res.json();
+    if(data.ok&&Array.isArray(data.inventory)&&data.inventory.length>=inventory.length){
+      inventory=data.inventory;
+      sanitizeInventory();
+      writeLocalSafe('po_inventory',inventory,['image']);
+      invId=Math.max(0,...inventory.map(x=>x.id||0))+1;
+      if($('pane-inventory')&&$('pane-inventory').classList.contains('on'))safeRun(rInventory);
+    }else if(inventory.length){
+      saveInventory();
+    }
+  }catch(_){/* server offline — keep the browser copy */}
+}
+// Coerce numeric fields so rendering/aggregation can never crash on bad data.
+function sanitizeInventory(){
+  inventory.forEach(x=>{
+    ['qty','cost','market','lowStockThreshold'].forEach(f=>{const n=parseFloat(x[f]);x[f]=isFinite(n)?n:0;});
+    if(!x.qty||x.qty<0)x.qty=x.qty===0?0:1;
+    if(!x.status)x.status='in-stock';
+    if(!x.cat)x.cat='other';
+  });
 }
 // Pull the saved order file from the server on startup so orders never "disappear"
 let ordersLoading=false;
@@ -55,6 +121,17 @@ function fd(d){if(!d)return'';const dt=new Date(d+'T00:00:00');return dt.toLocal
 function money(v){const n=typeof v==='number'?v:parseFloat(v);return isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'0.00';}
 // Coerce every order's price to a real number so rendering can never crash on bad data.
 function sanitizeOrders(){orders.forEach(o=>{const n=typeof o.price==='number'?o.price:parseFloat(o.price);o.price=isFinite(n)?n:0;});}
+// ── Inventory derived values (never stored — always computed from cost/market/qty) ──
+function invTotalCost(x){return (x.qty||0)*(x.cost||0);}
+function invMarketValue(x){return (x.qty||0)*(x.market||0);}
+function invProfitEach(x){return (x.market||0)-(x.cost||0);}
+function invProfitPct(x){return x.cost?((x.market-x.cost)/x.cost*100):0;}
+function invTotalProfit(x){return (x.qty||0)*invProfitEach(x);}
+// A held item at/under its threshold is "low stock" — derived, not a stored status.
+function invIsLowStock(x){return x.status==='in-stock'&&(x.qty||0)<=(x.lowStockThreshold||3);}
+// The effective status used by filters/pills: real status, but in-stock items
+// that have run low surface as "low-stock".
+function invEffStatus(x){return invIsLowStock(x)?'low-stock':x.status;}
 
 // ── TOAST ────────────────────────────────────────────────────────
 let toastActionFn=null;
@@ -78,7 +155,7 @@ function queueConfetti(){
   setTimeout(async()=>{
     _confettiQueued=false;
     await loadConfettiLib();
-    if(window.confetti)confetti({particleCount:90,spread:75,origin:{y:0.3},colors:['#663af3','#a78bfa','#d8ecf8','#4fbf8b']});
+    if(window.confetti)confetti({particleCount:90,spread:75,origin:{y:0.3},colors:['#7c5cff','#c4b5fd','#f1eefc','#4fbf8b']});
   },60);
 }
 
@@ -115,7 +192,9 @@ function toggleMobileSidebar(){
 // once you noticed it. Keeps the KPI strip's context in sync with wherever
 // you actually are.
 const TAB_HERO={
-  orders:{title:'Dashboard',sub:'Track and manage your Pokémon orders across every store'},
+  dashboard:{title:'Dashboard',sub:'Your collecting activity at a glance'},
+  orders:{title:'Orders',sub:'Track and manage your Pokémon orders across every store'},
+  inventory:{title:'Inventory',sub:'Track your inventory, costs, and profitability in real-time'},
   emails:{title:'Emails',sub:'Every order-related email that has been scanned or synced'},
   tracking:{title:'Tracking',sub:'Last known status from your emails, sorted by expected delivery'},
   calendar:{title:'Calendar',sub:'Expected deliveries laid out by date'},
@@ -130,17 +209,20 @@ function sw(tab){
   $('sidebar').classList.remove('mobile-open'); $('sidebar-backdrop').classList.remove('show'); // close the mobile drawer after picking a tab
   const hero=TAB_HERO[tab];
   if(hero){$('hero-title').textContent=hero.title;$('hero-sub').textContent=hero.sub;}
+  // The global metric-tile row is a quick-glance summary meant for tabs that
+  // don't have their own stat row. Dashboard and Insights both do — showing
+  // the generic tiles right above them reads as a duplicate.
+  $('hero-metric-tiles').classList.toggle('hide-on-tab',tab==='insights'||tab==='dashboard'||tab==='inventory');
   safeRun(rStats); // header metric tiles are always visible regardless of active tab
+  if(tab==='dashboard')safeRun(rDashboard);
   if(tab==='orders')safeRun(rOrders);
+  if(tab==='inventory')safeRun(rInventory);
   if(tab==='emails')safeRun(rEmails);
   if(tab==='tracking')safeRun(rTracking);
   if(tab==='calendar')safeRun(rCal);
+  if(tab==='sync'){safeRun(renderSyncHistory);safeRun(updateScanMeta);}
   if(tab==='insights')safeRun(rInsights);
 }
-// "Dashboard" and "Orders" currently point at the same pane (data-tab="orders"),
-// so sw()'s own querySelector can't tell them apart — this corrects the
-// highlight to whichever of the two was actually clicked.
-function setActiveNav(el){document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('on'));el.classList.add('on');}
 function safeRun(fn){try{fn();}catch(e){console.error('render error in',fn.name,e);}}
 function quickFilter(f){sw('orders');sf(f);}
 
@@ -174,6 +256,26 @@ function monthSpend(m,y){
     const d=new Date(o.date+'T00:00:00');
     return d.getMonth()===m&&d.getFullYear()===y;
   }).reduce((s,o)=>s+(o.price||0),0);
+}
+// Inclusive spend total between two 'YYYY-MM-DD' bounds (plain string compare — safe since all dates share that format).
+function spendInRange(fromStr,toStr){
+  return orders.filter(o=>o.date&&o.status!=='cancelled'&&o.date>=fromStr&&o.date<=toStr).reduce((s,o)=>s+(o.price||0),0);
+}
+// Sidebar "This period" select: reveal the custom date pickers (animated) and seed a
+// sensible default range the first time someone switches to Custom, then re-render.
+function onPeriodChange(){
+  const rangeEl=$('ss-range'),customWrap=$('ss-custom-range');
+  const isCustom=rangeEl&&rangeEl.value==='custom';
+  if(customWrap)customWrap.classList.toggle('show',isCustom);
+  if(isCustom){
+    const fromEl=$('ss-custom-from'),toEl=$('ss-custom-to');
+    if(fromEl&&!fromEl.value){
+      const iso=d=>d.toISOString().slice(0,10);
+      const to=new Date(),from=new Date();from.setDate(from.getDate()-29);
+      fromEl.value=iso(from);if(toEl)toEl.value=iso(to);
+    }
+  }
+  rStats();
 }
 function rStats(){
   const t=orders.length;
@@ -217,23 +319,43 @@ function rStats(){
     const d=new Date(now.getFullYear(),now.getMonth()-i,1);
     prevPeriodTotal+=monthSpend(d.getMonth(),d.getFullYear());
   }
-  const rangeOpt=$('ss-range-opt-3m'),rangeEl=$('ss-range'),totalEl=$('ss-total'),trendEl=$('ss-trend');
+  const rangeOpt=$('ss-range-opt-3m'),rangeOptYear=$('ss-range-opt-year'),rangeEl=$('ss-range'),trendEl=$('ss-trend'),breakdownEl=$('ss-breakdown');
   if(rangeOpt)rangeOpt.textContent=monthDates[0].toLocaleDateString('en-US',{month:'short'})+' – '+monthDates[2].toLocaleDateString('en-US',{month:'short',year:'numeric'});
-  const showAllTime=rangeEl&&rangeEl.value==='all';
-  if(showAllTime){
-    const allTimeTotal=orders.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+(o.price||0),0);
-    if(totalEl)totalEl.textContent='$'+Math.round(allTimeTotal).toLocaleString();
-    if(trendEl){trendEl.textContent='';trendEl.className='ss-trend';}
-  }else{
-    if(totalEl)totalEl.textContent='$'+Math.round(periodTotal).toLocaleString();
-    if(trendEl){
-      if(!prevPeriodTotal&&!periodTotal){trendEl.textContent='';trendEl.className='ss-trend';}
-      else if(!prevPeriodTotal){trendEl.textContent='New';trendEl.className='ss-trend up';}
-      else{
-        const pct=Math.round(((periodTotal-prevPeriodTotal)/prevPeriodTotal)*100);
-        trendEl.textContent=(pct>0?'▲ ':pct<0?'▼ ':'– ')+Math.abs(pct)+'%';
-        trendEl.className='ss-trend '+(pct>0?'up':pct<0?'down':'flat');
-      }
+  if(rangeOptYear)rangeOptYear.textContent=now.getFullYear()+' (calendar year)';
+
+  // Which period is selected — 3m/all keep their original math; year and custom are
+  // computed fresh here. The monthly breakdown only makes sense for the rolling-3-months
+  // view, so it collapses (animated) for the others.
+  const mode=rangeEl?rangeEl.value:'3m';
+  if(breakdownEl)breakdownEl.classList.toggle('hide',mode!=='3m');
+  let displayTotal=periodTotal,showTrend=true;
+  if(mode==='all'){
+    displayTotal=orders.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+(o.price||0),0);
+    showTrend=false;
+  }else if(mode==='year'){
+    const y=now.getFullYear();
+    displayTotal=spendInRange(y+'-01-01',y+'-12-31');
+    prevPeriodTotal=spendInRange((y-1)+'-01-01',(y-1)+'-12-31');
+  }else if(mode==='custom'){
+    const fromEl=$('ss-custom-from'),toEl=$('ss-custom-to');
+    const from=fromEl&&fromEl.value,to=toEl&&toEl.value;
+    if(from&&to&&from<=to){
+      displayTotal=spendInRange(from,to);
+      const iso=d=>d.toISOString().slice(0,10);
+      const days=Math.round((new Date(to+'T00:00:00')-new Date(from+'T00:00:00'))/86400000)+1;
+      const prevTo=new Date(from+'T00:00:00');prevTo.setDate(prevTo.getDate()-1);
+      const prevFrom=new Date(prevTo);prevFrom.setDate(prevFrom.getDate()-days+1);
+      prevPeriodTotal=spendInRange(iso(prevFrom),iso(prevTo));
+    }else{displayTotal=0;showTrend=false;}
+  }
+  animateNumber('ss-total',Math.round(displayTotal),{prefix:'$'});
+  if(trendEl){
+    if(!showTrend||(!prevPeriodTotal&&!displayTotal)){trendEl.textContent='';trendEl.className='ss-trend';}
+    else if(!prevPeriodTotal){trendEl.textContent='New';trendEl.className='ss-trend up';}
+    else{
+      const pct=Math.round(((displayTotal-prevPeriodTotal)/prevPeriodTotal)*100);
+      trendEl.textContent=(pct>0?'▲ ':pct<0?'▼ ':'– ')+Math.abs(pct)+'%';
+      trendEl.className='ss-trend '+(pct>0?'up':pct<0?'down':'flat');
     }
   }
 
@@ -248,7 +370,7 @@ function rStats(){
 
   renderKpiBars();
 
-  if(document.getElementById('pane-orders')?.classList.contains('on'))safeRun(rDashboardSide);
+  if(document.getElementById('pane-dashboard')?.classList.contains('on'))safeRun(rDashboard);
 }
 
 // ── KPI BARS — each card's bottom bar is that stat's real share of total
@@ -270,11 +392,177 @@ function renderKpiBars(){
   });
 }
 
-// ── DASHBOARD SIDE PANEL (Insights preview + Recent activity) ────
-function rDashboardSide(){
-  const miniEl=$('dash-insights-mini'),actEl=$('dash-activity'),lblEl=$('dash-period-lbl');
-  if(!miniEl||!actEl)return;
+// ── STORE LOGOS — real brand logos via Google's public favicon service for
+// known store domains (CSP already allows img-src https:). Unknown stores
+// fall back to the generic storefront icon so nothing ever looks broken.
+const STORE_DOMAINS={
+  'amazon':'amazon.com','target':'target.com','walmart':'walmart.com','best buy':'bestbuy.com',
+  'pokemon center':'pokemoncenter.com','pokémon center':'pokemoncenter.com','ebay':'ebay.com',
+  'tcgplayer':'tcgplayer.com','tiktok shop':'tiktok.com','tiktok':'tiktok.com',
+  'mattel creations':'mattel.com','mattel':'mattel.com','whatnot':'whatnot.com','mercari':'mercari.com',
+  'gamestop':'gamestop.com','costco':'costco.com','bandai':'bandai.com','etsy':'etsy.com',
+  'shopify':'shopify.com','card kingdom':'cardkingdom.com','troll and toad':'trollandtoad.com',
+};
+function storeDomain(store){
+  if(!store)return null;
+  const k=store.trim().toLowerCase();
+  if(STORE_DOMAINS[k])return STORE_DOMAINS[k];
+  for(const key in STORE_DOMAINS){ if(k.includes(key))return STORE_DOMAINS[key]; }
+  return null;
+}
+function storeFaviconUrl(domain,sz){return 'https://www.google.com/s2/favicons?domain='+domain+'&sz='+(sz||64);}
+// Inline variant for order-card meta rows — renders nothing for unknown
+// stores (the store name is already there; a generic icon would be noise).
+function storeLogoInline(store,size){
+  const d=storeDomain(store);
+  if(!d)return'';
+  return '<img class="store-favicon" src="'+storeFaviconUrl(d)+'" width="'+size+'" height="'+size+'" alt="" loading="lazy" onerror="this.remove()"/>';
+}
 
+// A lightweight inline-SVG spend chart (axis ticks, grid lines, dots) built
+// fresh from real monthly totals — deliberately not a Chart.js instance,
+// since the Dashboard should render instantly and Chart.js is meant to stay
+// a lazy Insights-only dependency.
+function renderSpendChartSVG(values,labels){
+  const w=760,h=250,padL=58,padR=20,padT=14,padB=32;
+  const plotW=w-padL-padR,plotH=h-padT-padB;
+  // "Nice" axis ceiling: 1/2/5 × 10^k just above the real max (min $1 so an
+  // all-zero month still draws a sensible $0–$1 axis like an empty state).
+  const rawMax=Math.max(...values,0);
+  let niceMax=1;
+  if(rawMax>0){
+    const pow=Math.pow(10,Math.floor(Math.log10(rawMax)));
+    const n=rawMax/pow;
+    niceMax=(n<=1?1:n<=2?2:n<=5?5:10)*pow;
+  }
+  const fmt=v=>v>=1000?'$'+(v/1000)+(v%1000===0?'k':'k'):(niceMax<=2?'$'+v.toFixed(2):'$'+Math.round(v).toLocaleString());
+  const x=i=>padL+(values.length>1?i*(plotW/(values.length-1)):plotW/2);
+  const y=v=>padT+plotH*(1-v/niceMax);
+  let out='<svg viewBox="0 0 '+w+' '+h+'" xmlns="http://www.w3.org/2000/svg">'+
+    '<defs><linearGradient id="dashSpendGrad" x1="0" y1="0" x2="0" y2="1">'+
+    '<stop offset="0%" style="stop-color:var(--accent);stop-opacity:0.3"/>'+
+    '<stop offset="100%" style="stop-color:var(--accent);stop-opacity:0"/>'+
+    '</linearGradient></defs>';
+  // Grid lines + $ tick labels (4 steps)
+  for(let t=0;t<=4;t++){
+    const v=niceMax*t/4, gy=y(v);
+    out+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(w-padR)+'" y2="'+gy+'" style="stroke:rgba(255,255,255,0.05);stroke-width:1;'+(t===0?'':'stroke-dasharray:3 4;')+'"/>';
+    out+='<text x="'+(padL-10)+'" y="'+(gy+4)+'" text-anchor="end" style="fill:var(--txt3);font-size:11px;font-family:var(--font-body);font-weight:500;">'+fmt(v)+'</text>';
+  }
+  // X labels — thin out when there are many months
+  const step=Math.ceil(labels.length/6);
+  labels.forEach((lbl,i)=>{
+    if(i%step!==0&&i!==labels.length-1)return;
+    out+='<text x="'+x(i)+'" y="'+(h-8)+'" text-anchor="middle" style="fill:var(--txt3);font-size:11px;font-family:var(--font-body);font-weight:500;">'+lbl+'</text>';
+  });
+  const pts=values.map((v,i)=>[x(i),y(v)]);
+  const line=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  out+='<path d="'+line+' L'+pts[pts.length-1][0].toFixed(1)+','+(padT+plotH)+' L'+pts[0][0].toFixed(1)+','+(padT+plotH)+' Z" fill="url(#dashSpendGrad)" stroke="none"/>';
+  out+='<path d="'+line+'" fill="none" style="stroke:var(--accent);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;"/>';
+  pts.forEach(p=>{out+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="4" style="fill:var(--accent);stroke:var(--bg2);stroke-width:2;"/>';});
+  return out+'</svg>';
+}
+
+// "X% vs last period" delta line under each stat tile — this month's slice
+// of the metric vs last month's. invert=true flips the good/bad coloring
+// (more cancellations is bad).
+function deltaHTML(cur,prev,invert){
+  if(!prev&&!cur)return '<span class="flat">– 0% vs last period</span>';
+  if(!prev)return '<span class="'+(invert?'down':'up')+'">▲ New this period</span>';
+  const pct=Math.round(((cur-prev)/prev)*100);
+  if(pct===0)return '<span class="flat">– 0% vs last period</span>';
+  const up=pct>0;
+  const cls=up?(invert?'down':'up'):(invert?'up':'down');
+  return '<span class="'+cls+'">'+(up?'▲ ':'▼ ')+Math.abs(pct)+'% vs last period</span>';
+}
+// Orders of a given status placed in a given month (by order date).
+function monthStatusCount(status,m,y){
+  return orders.filter(o=>{
+    if(!o.date)return false;
+    if(status!=='all'&&o.status!==status)return false;
+    const d=new Date(o.date+'T00:00:00');
+    return d.getMonth()===m&&d.getFullYear()===y;
+  }).length;
+}
+
+// ── DASHBOARD (overview) — welcome hero, 5 stat tiles with MoM deltas,
+// spending-overview chart, top-store logos, quick actions, and the
+// at-a-glance / gauge / activity side column. No order list here on
+// purpose — that's what the Orders tab is for.
+function rDashboard(){
+  const actEl=$('dash-activity'),gaugeSubEl=$('dash-gauge-sub');
+  if(!actEl||!$('d-total'))return;
+
+  // Personalized hero title (overrides the static TAB_HERO entry). The wave
+  // emoji sits in its own span so the gradient text-clip doesn't blank it.
+  const heroT=$('hero-title'),heroS=$('hero-sub');
+  if(heroT&&document.getElementById('pane-dashboard').classList.contains('on')){
+    const raw=((typeof currentUserEmail==='string'&&currentUserEmail)||'').split('@')[0].replace(/[^a-zA-Z].*$/,'');
+    const name=raw?raw.charAt(0).toUpperCase()+raw.slice(1):'';
+    heroT.innerHTML='Welcome back'+(name?', '+escHtml(name):'')+' <span class="wave-emoji">👋</span>';
+    if(heroS)heroS.textContent="Here's what's happening with your orders.";
+  }
+
+  const now=new Date();
+  const prevM=new Date(now.getFullYear(),now.getMonth()-1,1);
+  const spend=orders.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+(o.price||0),0);
+
+  // 5 stat tiles — all-time totals, with this-month-vs-last-month delta lines
+  const sh=orders.filter(o=>o.status==='shipped').length;
+  const dl=orders.filter(o=>o.status==='delivered').length;
+  const cx=orders.filter(o=>o.status==='cancelled').length;
+  animateNumber('d-total',orders.length);
+  animateNumber('d-sh',sh);animateNumber('d-dl',dl);animateNumber('d-cx',cx);
+  animateNumber('d-sp',Math.round(spend),{prefix:'$'});
+  const pctOf=n=>orders.length?Math.round((n/orders.length)*100):0;
+  const setBar=(id,v)=>{const el=$(id);if(el)el.style.width=v+'%';};
+  setBar('d-total-bar',100);setBar('d-sh-bar',pctOf(sh));setBar('d-dl-bar',pctOf(dl));setBar('d-cx-bar',pctOf(cx));
+  setBar('d-sp-bar',orders.some(o=>o.price&&o.status!=='cancelled')?100:0);
+  const setDelta=(id,html)=>{const el=$(id);if(el)el.innerHTML=html;};
+  const mm=(status)=>[monthStatusCount(status,now.getMonth(),now.getFullYear()),monthStatusCount(status,prevM.getMonth(),prevM.getFullYear())];
+  const [tC,tP]=mm('all'),[sC,sP]=mm('shipped'),[dC,dP]=mm('delivered'),[cC,cP]=mm('cancelled');
+  setDelta('d-total-delta',deltaHTML(tC,tP));
+  setDelta('d-sh-delta',deltaHTML(sC,sP));
+  setDelta('d-dl-delta',deltaHTML(dC,dP));
+  setDelta('d-cx-delta',deltaHTML(cC,cP,true));
+  setDelta('d-sp-delta',deltaHTML(monthSpend(now.getMonth(),now.getFullYear()),monthSpend(prevM.getMonth(),prevM.getFullYear())));
+
+  // Spending overview — selectable window of real monthly totals
+  const months=parseInt(($('dash-spend-range')||{}).value)||3;
+  const vals=[],lbls=[];
+  for(let i=months-1;i>=0;i--){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    vals.push(monthSpend(d.getMonth(),d.getFullYear()));
+    lbls.push(d.toLocaleDateString('en-US',months<=4?{month:'short',year:'numeric'}:{month:'short'}));
+  }
+  animateNumber('dash-spend-total',Math.round(vals.reduce((s,v)=>s+v,0)),{prefix:'$'});
+  const chartEl=$('dash-spend-chart');
+  if(chartEl)chartEl.innerHTML=renderSpendChartSVG(vals,lbls);
+
+  // Top stores — real brand logos, count badge, tooltip. Empty state shows
+  // dimmed logos of the popular supported stores (like the mockup) so the
+  // card still reads as "this is what will appear here".
+  const storeCounts={};
+  orders.forEach(o=>{if(o.store)storeCounts[o.store]=(storeCounts[o.store]||0)+1;});
+  const topStores=Object.entries(storeCounts).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const storesEl=$('dash-top-stores'),storesNote=$('dash-stores-note');
+  if(storesEl){
+    const tile=(store,domain,count,dim)=>
+      '<div class="dash-store-tile'+(dim?' dim':'')+'" title="'+escAttr(store)+(count?' · '+count+' order'+(count>1?'s':''):'')+'">'+
+        (domain?'<img src="'+storeFaviconUrl(domain)+'" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'block\';"/><i class="ti ti-building-store fallback-ico"></i>':'<i class="ti ti-building-store fallback-ico" style="display:block;"></i>')+
+        (count?'<span class="dash-store-count">'+count+'</span>':'')+
+      '</div>';
+    if(topStores.length){
+      if(storesNote)storesNote.textContent='Your most-ordered stores.';
+      storesEl.innerHTML=topStores.map(([store,count])=>tile(store,storeDomain(store),count,false)).join('');
+    }else{
+      if(storesNote)storesNote.textContent="You haven't ordered from any stores yet.";
+      storesEl.innerHTML=[['Amazon','amazon.com'],['Target','target.com'],['Walmart','walmart.com'],['Pokémon Center','pokemoncenter.com'],['Best Buy','bestbuy.com']]
+        .map(([s,d])=>tile(s,d,0,true)).join('')+'<div class="dash-store-tile dim" title="And many more"><span style="color:var(--txt3);font-weight:800;letter-spacing:1px;">…</span></div>';
+    }
+  }
+
+  // At a glance — avg delivery time / on-time rate / delay rate / fastest carrier
   const delivered=orders.filter(o=>o.status==='delivered'&&o.history&&o.history.length>1);
   let avgDays=null;
   if(delivered.length){
@@ -296,14 +584,6 @@ function rDashboardSide(){
   }
   const overdueShipped=orders.filter(o=>o.status==='shipped'&&o.expectedDelivery&&new Date(o.expectedDelivery+'T00:00:00')<new Date());
   const delayRate=orders.length?Math.round((overdueShipped.length/orders.length)*100):0;
-
-  // Top store by order count (real tally, not fabricated)
-  const storeCounts={};
-  orders.forEach(o=>{if(o.store)storeCounts[o.store]=(storeCounts[o.store]||0)+1;});
-  const topStoreEntry=Object.entries(storeCounts).sort((a,b)=>b[1]-a[1])[0];
-  const topStore=topStoreEntry?topStoreEntry[0]:null;
-
-  // Fastest carrier by average ordered→delivered days, from real history
   const carrierDays={};
   delivered.forEach(o=>{
     if(!o.carrier)return;
@@ -315,29 +595,24 @@ function rDashboardSide(){
   const carrierAvgs=Object.entries(carrierDays).map(([c,arr])=>[c,arr.reduce((s,v)=>s+v,0)/arr.length]);
   carrierAvgs.sort((a,b)=>a[1]-b[1]);
   const fastestCarrier=carrierAvgs[0]?carrierAvgs[0][0]:null;
-
-  lblEl.textContent='';
-  // On-time delivery gets a real gauge (canvas, drawn below via Chart.js)
-  // instead of another flat text row — everything else stays a quick-scan list.
-  miniEl.innerHTML=
-    '<div class="mini-gauge-row"><div class="mini-gauge-box"><canvas id="dashGaugeChart"></canvas></div>'+
-    '<div class="mini-gauge-info"><div class="insight-mini-lbl">On-time delivery</div>'+
-    '<div class="mini-gauge-sub">'+(deliveredWithEta.length?deliveredWithEta.length+' delivered order'+(deliveredWithEta.length===1?'':'s')+' with an ETA':'No delivered orders with an ETA yet')+'</div></div></div>'+
-    [
-      ['ti-clock-hour-4','var(--blue)','Avg. delivery time',avgDays!=null?avgDays+' days':'–'],
-      ['ti-alert-triangle','var(--amber)','Delay rate',delayRate+'%'],
-      ['ti-package','var(--purple)','Total orders',orders.length],
-      ['ti-building-store','var(--teal)','Top store',topStore?(topStore.length>16?topStore.slice(0,15)+'…':topStore):'–'],
-      ['ti-bolt','var(--coral)','Fastest carrier',fastestCarrier||'–'],
-    ].map(([ico,color,lbl,val])=>
-      '<div class="insight-mini"><div class="insight-mini-ico" style="background:'+color+'22;color:'+color+';"><i class="ti '+ico+'"></i></div><div class="insight-mini-info"><div class="insight-mini-lbl">'+lbl+'</div></div><div class="insight-mini-val">'+val+'</div></div>'
+  const glanceEl=$('dash-glance');
+  if(glanceEl){
+    glanceEl.innerHTML=[
+      ['Avg. delivery time',avgDays!=null?avgDays+' days':'–',''],
+      ['On-time delivery rate',onTimePct!=null?onTimePct+'%':'–',''],
+      ['Delay rate',delayRate+'%','color:var(--red);'],
+      ['Fastest carrier',fastestCarrier||'–',''],
+    ].map(([lbl,val,style])=>
+      '<div class="glance-row"><span class="glance-lbl">'+lbl+'</span><span class="glance-val" style="'+style+'">'+val+'</span></div>'
     ).join('');
+  }
 
+  if(gaugeSubEl)gaugeSubEl.textContent=deliveredWithEta.length?onTimePct+'% of '+deliveredWithEta.length+' delivered order'+(deliveredWithEta.length===1?'':'s')+' with an ETA arrived on time':'No delivered orders with an ETA yet.';
   actEl.innerHTML=renderActivityList(getRecentActivity(6));
 
   loadChartJs().then(()=>{
     dashCharts.forEach(c=>{try{c.destroy();}catch(_){}});dashCharts=[];
-    renderGaugeChart('dashGaugeChart',onTimePct,'#663af3','rgba(255,255,255,0.08)',dashCharts);
+    renderGaugeChart('dashGaugeChart',onTimePct,'#7c5cff','rgba(255,255,255,0.08)',dashCharts);
   }).catch(e=>console.error('Chart.js failed to load',e));
 }
 
@@ -371,6 +646,19 @@ function relativeTime(dateStr){
   if(days<7)return days+' days ago';
   if(days<30)return Math.round(days/7)+'w ago';
   return fd(dateStr);
+}
+// Minute/hour-precision "time ago", for full timestamps (sync history, last-synced)
+// rather than relativeTime()'s day-precision (order history dates).
+function timeAgo(ts){
+  if(!ts)return'';
+  const mins=Math.round((Date.now()-new Date(ts).getTime())/60000);
+  if(mins<1)return'Just now';
+  if(mins<60)return mins+'m ago';
+  const hrs=Math.round(mins/60);
+  if(hrs<24)return hrs+'h ago';
+  const days=Math.round(hrs/24);
+  if(days<7)return days+'d ago';
+  return new Date(ts).toLocaleDateString('en-US',{month:'short',day:'numeric'});
 }
 function renderActivityList(events){
   if(!events.length)return'<div class="notif-empty">No recent activity yet.<br>Once you add orders, activity will appear here.</div>';
@@ -482,7 +770,7 @@ function rOrders(){
     el.innerHTML=!orders.length
       ? (ordersLoading
         ? Array(3).fill('<div class="ocard skeleton-card"><div class="ocard-top"><div class="oico skel-block"></div><div class="ocard-info"><div class="skel-line" style="width:60%;height:13px;"></div><div class="skel-line" style="width:40%;height:10px;margin-top:8px;"></div></div><div class="skel-line" style="width:50px;height:20px;"></div></div></div>').join('')
-        : '<div class="empty-s" style="grid-column:1/-1;"><i class="ti ti-package"></i><p>No orders yet</p><p style="font-size:13px;color:var(--txt3);margin-top:6px;">Open Sync to scan your inbox, or use Add order.</p><div style="display:flex;gap:10px;justify-content:center;margin-top:16px;"><button class="empty-cta primary" onclick="sw(\'sync\')"><i class="ti ti-refresh"></i>Sync emails</button><button class="empty-cta secondary" onclick="openM()"><i class="ti ti-plus"></i>Add order</button></div></div>')
+        : '<div class="empty-s empty-brand" style="grid-column:1/-1;"><img src="/assets/favicon.png" width="56" height="56" alt=""/><p>No orders yet</p><p style="font-size:13px;color:var(--txt3);margin-top:6px;">Open Sync to scan your inbox, or use Add order.</p><div style="display:flex;gap:10px;justify-content:center;margin-top:16px;"><button class="empty-cta primary" onclick="sw(\'sync\')"><i class="ti ti-refresh"></i>Sync emails</button><button class="empty-cta secondary" onclick="openM()"><i class="ti ti-plus"></i>Add order</button></div></div>')
       : '<div class="empty-s" style="grid-column:1/-1;"><i class="ti ti-filter"></i><p>No orders match these filters</p><p style="font-size:12px;color:var(--txt3);margin-top:6px;">You have '+orders.length+' order'+(orders.length!==1?'s':'')+' total — try <span style="color:var(--accent);cursor:pointer;text-decoration:underline;" onclick="clearFilters()">clearing the filters</span>.</p></div>';
     return;
   }
@@ -508,7 +796,7 @@ function orderCardHTML(o,i){
       '<div class="ocard-info">'+
         '<div class="oname">'+escHtml(o.name||'Unnamed order')+'</div>'+
         '<div class="ometa">'+
-          '<span>'+escHtml(o.store||'')+'</span>'+
+          '<span>'+(o.store?storeLogoInline(o.store,14):'')+escHtml(o.store||'')+'</span>'+
           (o.date?'<span>'+fd(o.date)+'</span>':'')+
           (o.orderNum?'<span>#'+escHtml(o.orderNum)+'</span>':'')+
           (hasEmail?'<span style="color:var(--accent)"><i class="ti ti-mail" style="font-size:11px;"></i> email</span>':'')+
@@ -575,6 +863,348 @@ function dO(id){
   });
 }
 
+// ══ INVENTORY ══════════════════════════════════════════════════════
+const INV_PER_PAGE=12;
+
+// ── Optional price provider seam (currently inert) ──────────────────
+// When a TCG price source is wired up later (e.g. the free Pokémon TCG API
+// at api.pokemontcg.io, or a TCGplayer key), set PRICE_PROVIDER and implement
+// fetchMarketPrice(); the "Refresh prices" button and refreshAllPrices() are
+// already here waiting for it. Everything downstream (profit, margin, charts)
+// recomputes automatically once item.market values change.
+const PRICE_PROVIDER=null;
+async function fetchMarketPrice(name,set,condition){ return null; } // returns null until a provider is configured
+async function refreshAllPrices(){
+  if(!PRICE_PROVIDER){showToast('No price source connected yet','warn');return;}
+  // (future) loop items, call fetchMarketPrice, update item.market, saveInventory(), rInventory()
+}
+
+// The item's thumbnail: its own image if set, else its category glyph.
+function invItemIcon(x,cls){
+  cls=cls||'inv-item-ico';
+  if(isSafeImageUrl(x.image))return '<div class="'+cls+'"><img src="'+escAttr(x.image)+'" alt="" loading="lazy" onerror="this.parentElement.innerHTML=\''+(INV_CATS[x.cat]||INV_CATS.other).e.replace(/'/g,"\\'")+'\';"/></div>';
+  return '<div class="'+cls+'">'+(INV_CATS[x.cat]||INV_CATS.other).e+'</div>';
+}
+// Condition badge tint: graded→amber, sealed→blue, everything else→neutral/purple.
+function invCondBadge(x){
+  const c=x.condition||'';
+  const cls=c==='Graded'?'b-graded':c==='Sealed'?'b-sealed':'b-nm';
+  return '<span class="inv-badge '+cls+'">'+escHtml(c||'—')+'</span>';
+}
+
+function invFilter(status){
+  invStatusFil=status;invPage=1;
+  document.querySelectorAll('#inv-chips .chip').forEach(el=>el.classList.remove('on'));
+  const el=$('ic-'+status);if(el)el.classList.add('on');
+  rInventory();
+}
+// The filtered + sorted view that feeds the TABLE (stat cards/charts use the
+// full portfolio, not this).
+function invFilteredSorted(){
+  const q=($('inv-search')?$('inv-search').value:'').toLowerCase().trim();
+  const catF=($('inv-cat-fil')||{}).value||'all';
+  const condF=($('inv-cond-fil')||{}).value||'all';
+  const storeF=($('inv-store-fil')||{}).value||'all';
+  let list=inventory.filter(x=>{
+    if(invStatusFil!=='all'&&invEffStatus(x)!==invStatusFil)return false;
+    if(catF!=='all'&&x.cat!==catF)return false;
+    if(condF!=='all'&&x.condition!==condF)return false;
+    if(storeF!=='all'&&(x.store||'')!==storeF)return false;
+    if(q&&!((x.name||'').toLowerCase().includes(q)||(x.set||'').toLowerCase().includes(q)||(x.store||'').toLowerCase().includes(q)))return false;
+    return true;
+  });
+  const sort=($('inv-sort')||{}).value||'name';
+  const cmp={
+    'name':(a,b)=>(a.name||'').localeCompare(b.name||''),
+    'profit-desc':(a,b)=>invTotalProfit(b)-invTotalProfit(a),
+    'profit-asc':(a,b)=>invTotalProfit(a)-invTotalProfit(b),
+    'pct-desc':(a,b)=>invProfitPct(b)-invProfitPct(a),
+    'value-desc':(a,b)=>invMarketValue(b)-invMarketValue(a),
+    'qty-desc':(a,b)=>(b.qty||0)-(a.qty||0),
+  }[sort]||((a,b)=>0);
+  return list.sort(cmp);
+}
+
+function invRowHTML(x){
+  const profitEach=invProfitEach(x), pct=invProfitPct(x);
+  const pcls=v=>v>0?'inv-pos':v<0?'inv-neg':'';
+  const eff=invEffStatus(x);
+  const sign=v=>(v>0?'+':v<0?'-':'')+'$'+money(Math.abs(v));
+  return '<div class="inv-row" data-id="'+x.id+'">'+
+    '<div class="inv-item-cell">'+invItemIcon(x)+
+      '<div class="inv-item-name"><div class="nm">'+escHtml(x.name||'Untitled')+'</div><div class="st">'+escHtml(x.set||x.store||'')+'</div></div></div>'+
+    '<div class="inv-c-cond">'+invCondBadge(x)+'</div>'+
+    '<div class="inv-c-num">'+(x.qty||0)+'</div>'+
+    '<div class="inv-c-num">$'+money(x.cost)+'</div>'+
+    '<div class="inv-c-num">$'+money(invTotalCost(x))+'</div>'+
+    '<div class="inv-c-num"><span class="inv-market-cell" onclick="editMarket('+x.id+',event)">$'+money(x.market)+'</span></div>'+
+    '<div class="inv-c-num">$'+money(invMarketValue(x))+'</div>'+
+    '<div class="inv-c-num '+pcls(profitEach)+'">'+sign(profitEach)+'</div>'+
+    '<div class="inv-c-num '+pcls(pct)+'">'+(pct>0?'+':'')+pct.toFixed(1)+'%</div>'+
+    '<div class="inv-c-status"><span class="inv-status-pill inv-s-'+eff+'">'+INV_STATUS_LABEL[eff]+'</span></div>'+
+    '<div class="inv-c-menu"><button class="inv-menu-btn" onclick="invMenu('+x.id+',event)" aria-label="Item actions"><i class="ti ti-dots-vertical"></i></button></div>'+
+  '</div>';
+}
+
+function rInventory(){
+  if(!$('inv-table'))return;
+  sanitizeInventory();
+  const holdings=inventory.filter(x=>x.status!=='sold');
+
+  // ── Stat header (whole portfolio, not the filtered table) ──
+  const totalItems=holdings.reduce((s,x)=>s+(x.qty||0),0);
+  const invested=holdings.reduce((s,x)=>s+invTotalCost(x),0);
+  const market=holdings.reduce((s,x)=>s+invMarketValue(x),0);
+  const profit=market-invested;
+  const margin=invested?profit/invested*100:0;
+  animateNumber('inv-k-items',Math.round(totalItems));
+  animateNumber('inv-k-invested',Math.round(invested),{prefix:'$'});
+  animateNumber('inv-k-market',Math.round(market),{prefix:'$'});
+  const profEl=$('inv-k-profit');if(profEl)profEl.textContent=(profit>=0?'+':'-')+'$'+money(Math.abs(profit));
+  const subEl=$('inv-k-profit-sub');if(subEl){subEl.textContent=(margin>=0?'↑ ':'↓ ')+Math.abs(margin).toFixed(1)+'% overall';subEl.className='inv-stat-sub '+(profit>=0?'pos':'neg');}
+  const marEl=$('inv-k-margin');if(marEl)marEl.textContent=margin.toFixed(1)+'%';
+
+  // ── Chip counts (line items by effective status) ──
+  const cnt={all:inventory.length,'in-stock':0,'low-stock':0,'sold':0,'on-hold':0};
+  inventory.forEach(x=>{const e=invEffStatus(x);if(cnt[e]!=null)cnt[e]++;});
+  Object.keys(cnt).forEach(k=>{const el=$('ic-ct-'+k);if(el)el.textContent=cnt[k];});
+
+  // ── Store filter options (rebuild from data, preserving selection) ──
+  const storeSel=$('inv-store-fil');
+  if(storeSel){
+    const cur=storeSel.value;
+    const stores=[...new Set(inventory.map(x=>x.store).filter(Boolean))].sort();
+    storeSel.innerHTML='<option value="all">All Stores</option>'+stores.map(s=>'<option value="'+escAttr(s)+'">'+escHtml(s)+'</option>').join('');
+    if([...storeSel.options].some(o=>o.value===cur))storeSel.value=cur;
+  }
+
+  // ── Table (filtered + sorted + paginated) ──
+  const list=invFilteredSorted();
+  const totalPages=Math.max(1,Math.ceil(list.length/INV_PER_PAGE));
+  if(invPage>totalPages)invPage=totalPages;
+  const start=(invPage-1)*INV_PER_PAGE;
+  const pageItems=list.slice(start,start+INV_PER_PAGE);
+  $('inv-table').innerHTML=pageItems.length
+    ? pageItems.map(invRowHTML).join('')
+    : '<div class="inv-empty"><i class="ti ti-package-off"></i><p>'+(inventory.length?'No items match these filters':'No inventory yet — click <b>Add item</b>, or add one from a delivered order.')+'</p></div>';
+  renderInvPager(list.length,start,pageItems.length,totalPages);
+
+  // ── Right rail ──
+  renderInvTopPerformers(holdings);
+  renderInvLowStock();
+  renderInvCharts(holdings,profit);
+}
+
+function renderInvPager(total,start,shown,totalPages){
+  const el=$('inv-pager');if(!el)return;
+  if(!total){el.innerHTML='';return;}
+  const from=start+1,to=start+shown;
+  let btns='<button class="inv-pg" '+(invPage<=1?'disabled':'')+' onclick="invGoPage('+(invPage-1)+')" aria-label="Previous page"><i class="ti ti-chevron-left"></i></button>';
+  const pages=[];
+  for(let p=1;p<=totalPages;p++){
+    if(p===1||p===totalPages||Math.abs(p-invPage)<=1)pages.push(p);
+    else if(pages[pages.length-1]!=='…')pages.push('…');
+  }
+  pages.forEach(p=>{ btns+= p==='…' ? '<span class="inv-pg-dots">…</span>' : '<button class="inv-pg'+(p===invPage?' on':'')+'" onclick="invGoPage('+p+')">'+p+'</button>'; });
+  btns+='<button class="inv-pg" '+(invPage>=totalPages?'disabled':'')+' onclick="invGoPage('+(invPage+1)+')" aria-label="Next page"><i class="ti ti-chevron-right"></i></button>';
+  el.innerHTML='<span class="inv-pager-info">Showing '+from+' to '+to+' of '+total+' item'+(total===1?'':'s')+'</span><span class="inv-pager-btns">'+btns+'</span>';
+}
+function invGoPage(p){invPage=p;rInventory();}
+
+function renderInvTopPerformers(holdings){
+  const el=$('inv-top');if(!el)return;
+  const top=holdings.filter(x=>invTotalProfit(x)>0).sort((a,b)=>invTotalProfit(b)-invTotalProfit(a)).slice(0,4);
+  el.innerHTML=top.length?top.map(x=>
+    '<div class="inv-top-item">'+invItemIcon(x,'inv-top-ico')+
+    '<div class="inv-top-info"><div class="nm">'+escHtml(x.name||'')+'</div><div class="st">'+escHtml(x.set||x.store||'')+'</div></div>'+
+    '<div class="inv-top-profit"><div class="v">+$'+money(invTotalProfit(x))+'</div><div class="p">↑ '+invProfitPct(x).toFixed(1)+'%</div></div></div>'
+  ).join(''):'<div style="font-size:12.5px;color:var(--txt3);padding:6px 0;">No profitable items yet — set market values to see winners.</div>';
+}
+function renderInvLowStock(){
+  const el=$('inv-lowstock');if(!el)return;
+  const low=inventory.filter(invIsLowStock).sort((a,b)=>(a.qty||0)-(b.qty||0)).slice(0,5);
+  el.innerHTML=low.length?low.map(x=>
+    '<div class="inv-low-item">'+invItemIcon(x,'inv-top-ico')+
+    '<div class="inv-top-info"><div class="nm">'+escHtml(x.name||'')+'</div><div class="st">'+escHtml(x.set||x.store||'')+'</div></div>'+
+    '<div class="inv-low-left">'+(x.qty||0)+' left</div></div>'
+  ).join(''):'<div style="font-size:12.5px;color:var(--txt3);padding:6px 0;">Nothing running low. 🎉</div>';
+}
+
+function renderInvCharts(holdings,totalProfit){
+  const pnlTotalEl=$('inv-pnl-total');
+  if(pnlTotalEl){pnlTotalEl.textContent=(totalProfit>=0?'+$':'-$')+money(Math.abs(totalProfit));pnlTotalEl.className='inv-pnl-total'+(totalProfit<0?' neg':'');}
+
+  // Profit-by-category legend (always render; chart needs Chart.js)
+  const byCat={};
+  holdings.forEach(x=>{byCat[x.cat]=(byCat[x.cat]||0)+invTotalProfit(x);});
+  const catEntries=Object.entries(byCat).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+  const catTotal=catEntries.reduce((s,[,v])=>s+v,0);
+  const legEl=$('inv-cat-legend');
+  if(legEl){
+    legEl.innerHTML=catEntries.length?catEntries.map(([k,v])=>
+      '<div class="inv-cat-leg-item"><span class="inv-cat-dot" style="background:'+(INV_CAT_COLORS[k]||'#7878a0')+';"></span>'+
+      '<span class="inv-cat-leg-name">'+(INV_CATS[k]||INV_CATS.other).label+'</span>'+
+      '<span class="inv-cat-leg-val">$'+money(v)+'</span>'+
+      '<span class="inv-cat-leg-pct">'+(catTotal?Math.round(v/catTotal*100):0)+'%</span></div>'
+    ).join(''):'<div style="font-size:12px;color:var(--txt3);">No positive-profit categories yet.</div>';
+  }
+
+  // Cumulative profit-by-acquisition-date series for the P&L line
+  const rangeSel=($('inv-pnl-range')||{}).value||'all';
+  const dated=holdings.filter(x=>x.date).sort((a,b)=>a.date<b.date?-1:1);
+  let cum=0; const series=dated.map(x=>{cum+=invTotalProfit(x);return {date:x.date,val:cum};});
+  let sliced=series;
+  if(rangeSel!=='all'){
+    const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-parseInt(rangeSel));
+    const cISO=cutoff.toISOString().slice(0,10);
+    sliced=series.filter(p=>p.date>=cISO);
+    if(!sliced.length&&series.length)sliced=[series[series.length-1]];
+  }
+
+  loadChartJs().then(()=>{
+    invCharts.forEach(c=>{try{c.destroy();}catch(_){}});invCharts=[];
+    // P&L line/area
+    const pc=document.getElementById('invPnlChart');
+    if(pc){
+      const ctx=pc.getContext('2d');
+      const grad=ctx.createLinearGradient(0,0,0,150);
+      grad.addColorStop(0,'rgba(124,92,255,0.35)');grad.addColorStop(1,'rgba(124,92,255,0)');
+      const labels=sliced.map(p=>fd(p.date));const data=sliced.map(p=>Math.round(p.val));
+      invCharts.push(new Chart(pc,{type:'line',
+        data:{labels:labels.length?labels:[''],datasets:[{data:data.length?data:[0],borderColor:'#7c5cff',backgroundColor:grad,fill:true,tension:.4,pointRadius:0,pointHoverRadius:4,pointBackgroundColor:'#7c5cff',borderWidth:2.5}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.raw.toLocaleString()}}},
+          scales:{x:{grid:{display:false},ticks:{color:'#8a8a94',font:{size:10},maxTicksLimit:5}},y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8a8a94',font:{size:11},callback:v=>'$'+v.toLocaleString()},border:{display:false}}},
+          animation:{duration:800,easing:'easeOutQuart'}}}));
+    }
+    // Profit-by-category donut
+    const cc=document.getElementById('invCatChart');
+    if(cc){
+      invCharts.push(new Chart(cc,{type:'doughnut',
+        data:{labels:catEntries.map(([k])=>(INV_CATS[k]||INV_CATS.other).label),datasets:[{data:catEntries.map(([,v])=>Math.round(v)),backgroundColor:catEntries.map(([k])=>INV_CAT_COLORS[k]||'#7878a0'),borderWidth:0,hoverOffset:6}]},
+        options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': $'+c.raw.toLocaleString()}}},animation:{animateRotate:true,animateScale:true,duration:800,easing:'easeOutQuart'}}}));
+    }
+  }).catch(e=>console.error('Chart.js failed to load',e));
+}
+
+// ── Inline market-value editing (the interaction that drives all profit) ──
+function editMarket(id,ev){
+  if(ev)ev.stopPropagation();
+  const x=inventory.find(i=>i.id===id);if(!x)return;
+  const cell=ev&&ev.currentTarget?ev.currentTarget:null;if(!cell)return;
+  const input=document.createElement('input');
+  input.type='number';input.step='0.01';input.min='0';input.value=x.market||'';input.className='inv-market-input';
+  const commit=()=>{const v=parseFloat(input.value);x.market=isFinite(v)&&v>=0?v:0;saveInventory();rInventory();};
+  input.onkeydown=e=>{if(e.key==='Enter'){input.blur();}else if(e.key==='Escape'){input.value=x.market||'';input.blur();}};
+  input.onblur=commit;
+  cell.replaceWith(input);input.focus();input.select();
+}
+
+// ── Row action menu ──
+function invMenu(id,ev){
+  ev.stopPropagation();
+  document.querySelectorAll('.inv-menu').forEach(m=>m.remove());
+  const row=ev.currentTarget.closest('.inv-row');if(!row)return;
+  const x=inventory.find(i=>i.id===id);if(!x)return;
+  const menu=document.createElement('div');menu.className='inv-menu';
+  menu.innerHTML='<button onclick="openInvModal('+id+')"><i class="ti ti-edit"></i>Edit</button>'+
+    (x.status!=='sold'?'<button onclick="invMarkSold('+id+')"><i class="ti ti-cash"></i>Mark as sold</button>':'<button onclick="invMarkInStock('+id+')"><i class="ti ti-rotate"></i>Back to in stock</button>')+
+    '<button class="danger" onclick="invDeleteItem('+id+')"><i class="ti ti-trash"></i>Delete</button>';
+  row.appendChild(menu);
+  setTimeout(()=>{document.addEventListener('click',function h(){menu.remove();document.removeEventListener('click',h);},{once:true});},0);
+}
+function invMarkSold(id){const x=inventory.find(i=>i.id===id);if(!x)return;x.status='sold';saveInventory();rInventory();showToast('Marked as sold');}
+function invMarkInStock(id){const x=inventory.find(i=>i.id===id);if(!x)return;x.status='in-stock';saveInventory();rInventory();showToast('Back in stock');}
+function invDeleteItem(id){
+  const idx=inventory.findIndex(i=>i.id===id);if(idx===-1)return;
+  const removed=inventory[idx];inventory.splice(idx,1);
+  saveInventory();rInventory();
+  showUndoToast('Item deleted','Undo',()=>{inventory.splice(Math.min(idx,inventory.length),0,removed);saveInventory();rInventory();});
+}
+
+// ── Add / edit modal ──
+function pcInv(el){document.querySelectorAll('#inv-modal .cchip').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');invEditCat=el.dataset.ic;}
+let invEditingId=null,invModalOrderId=null;
+function openInvModal(id){
+  invEditingId=(typeof id==='number')?id:null;
+  invModalOrderId=null;
+  const x=invEditingId!=null?inventory.find(i=>i.id===invEditingId):null;
+  $('inv-modal-title').textContent=x?'Edit item':'Add item';
+  $('inv-modal-save').textContent=x?'Save changes':'Add item';
+  $('iv-name').value=x?x.name||'':'';
+  $('iv-set').value=x?x.set||'':'';
+  $('iv-store').value=x?x.store||'':'';
+  $('iv-cond').value=x?(x.condition||'NM'):'NM';
+  $('iv-qty').value=x?(x.qty!=null?x.qty:1):1;
+  $('iv-cost').value=x&&x.cost?x.cost:'';
+  $('iv-market').value=x&&x.market?x.market:'';
+  $('iv-status').value=x?(x.status||'in-stock'):'in-stock';
+  $('iv-threshold').value=x&&x.lowStockThreshold!=null?x.lowStockThreshold:3;
+  $('iv-date').value=x&&x.date?x.date:new Date().toISOString().slice(0,10);
+  $('iv-notes').value=x?x.notes||'':'';
+  invEditCat=x?(x.cat||'other'):'singles';
+  document.querySelectorAll('#inv-modal .cchip').forEach(c=>c.classList.toggle('sel',c.dataset.ic===invEditCat));
+  $('inv-modal').classList.add('open');
+}
+function closeInvModal(){$('inv-modal').classList.remove('open');invEditingId=null;}
+function saveInvItem(){
+  const name=$('iv-name').value.trim();
+  if(!name){showToast('Enter an item name','warn');return;}
+  const num=id=>{const v=parseFloat($(id).value);return isFinite(v)?v:0;};
+  const data={
+    name, set:$('iv-set').value.trim(), store:$('iv-store').value.trim(),
+    cat:invEditCat, condition:$('iv-cond').value,
+    qty:Math.max(0,Math.round(num('iv-qty'))), cost:num('iv-cost'), market:num('iv-market'),
+    status:$('iv-status').value, lowStockThreshold:Math.max(0,Math.round(num('iv-threshold'))),
+    date:$('iv-date').value||new Date().toISOString().slice(0,10), notes:$('iv-notes').value.trim(),
+  };
+  if(invEditingId!=null){
+    const x=inventory.find(i=>i.id===invEditingId);
+    if(x)Object.assign(x,data);
+  }else{
+    inventory.push({id:invId++,image:'',orderId:invModalOrderId,...data});
+  }
+  invModalOrderId=null;
+  saveInventory();closeInvModal();
+  if(!$('pane-inventory').classList.contains('on'))sw('inventory');else rInventory();
+  showToast(invEditingId!=null?'Item updated':'Item added to inventory');
+}
+
+// ── Add an existing order into inventory (prefilled) ──
+function addToInventoryFromDetail(){
+  const o=orders.find(x=>String(x.id)===String(currentDetailId));
+  if(!o){showToast('Open an order first','warn');return;}
+  if(inventory.some(i=>i.orderId===o.id)){showToast('This order is already in your inventory','warn');return;}
+  closeDetail();
+  openInvModal();
+  $('inv-modal-title').textContent='Add to inventory';
+  $('iv-name').value=o.name||'';
+  $('iv-store').value=o.store||'';
+  $('iv-cost').value=o.price||'';
+  $('iv-date').value=o.date||new Date().toISOString().slice(0,10);
+  invEditCat=ORDER_TO_INV_CAT[o.cat]||'other';
+  document.querySelectorAll('#inv-modal .cchip').forEach(c=>c.classList.toggle('sel',c.dataset.ic===invEditCat));
+  // Remember the source order so we can block re-adding it.
+  invModalOrderId=o.id;
+}
+
+function exportInventoryCSV(){
+  if(!inventory.length){showToast('No inventory to export yet','warn');return;}
+  const cols=['name','set','cat','condition','qty','cost','market','store','status','date','notes'];
+  const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const extra=['totalCost','marketValue','profitEach','totalProfit','profitPct'];
+  const rows=[cols.concat(extra).join(',')].concat(inventory.map(x=>
+    cols.map(c=>esc(x[c])).concat([
+      esc(invTotalCost(x).toFixed(2)),esc(invMarketValue(x).toFixed(2)),
+      esc(invProfitEach(x).toFixed(2)),esc(invTotalProfit(x).toFixed(2)),esc(invProfitPct(x).toFixed(1))
+    ]).join(',')));
+  const blob=new Blob([rows.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='shipmentscope-inventory-'+new Date().toISOString().split('T')[0]+'.csv';
+  document.body.appendChild(a);a.click();a.remove();
+  showToast('Exported '+inventory.length+' items to CSV');
+}
+
 // ── DUPLICATE CHECK ──────────────────────────────────────────────
 function checkDup(){
   if(!settings['dup'])return;
@@ -585,20 +1215,13 @@ function checkDup(){
 }
 
 // True only if we ALREADY have this order at the same-or-newer stage — i.e. the
-// email adds nothing. A newer stage (e.g. a cancellation for an order we have as
-// "ordered") is NOT a duplicate; it's an update, so it stays importable.
+// email adds nothing. A newer stage (e.g. a delivery notice for an order we have
+// as "shipped") is NOT a duplicate; it's an update, so it stays importable.
+// Delegates matching to findExisting so "is this a dup?" and "which order does
+// this update?" can never disagree (that asymmetry used to cause double cards).
 function isDuplicate(order){
-  const num=(order.orderNum||'').trim().toLowerCase();
-  if(num){
-    const ex=orders.find(o=>(o.orderNum||'').trim().toLowerCase()===num && (o.store||'').toLowerCase()===(order.store||'').toLowerCase());
-    if(ex) return statusRank(order.status)<=statusRank(ex.status);
-    return false;
-  }
-  // No order number: every email has a unique emailId (from the server), so use
-  // THAT to detect "I already imported this exact email" — never subject+date,
-  // which falsely merges distinct same-day orders that share a subject template.
-  if(order.emailId) return orders.some(o=>o.emailId===order.emailId);
-  return orders.some(o=>!(o.orderNum||'').trim() && !o.emailId && o.name===order.name && o.date===order.date && o.status===order.status);
+  const ex=findExisting(order);
+  return ex?statusRank(order.status)<=statusRank(ex.status):false;
 }
 
 // ── EMAIL VIEWER ─────────────────────────────────────────────────
@@ -787,22 +1410,44 @@ function rTracking(){
 }
 
 // ── CALENDAR ─────────────────────────────────────────────────────
+let _calDir='';
 function rCal(){
   const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
   const mo=orders.filter(o=>{if(!o.date)return false;const d=new Date(o.date+'T00:00:00');return d.getFullYear()===cY&&d.getMonth()===cM;});
   $('cm-lbl').textContent=MONTHS[cM]+' '+cY;
-  $('cm-sub').textContent=mo.length?mo.length+' order'+(mo.length>1?'s':'')+' this month':'No orders this month';
+  if(mo.length){
+    const spend=mo.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+(o.price||0),0);
+    const deliveredCt=mo.filter(o=>o.status==='delivered').length;
+    $('cm-sub').innerHTML=mo.length+' order'+(mo.length>1?'s':'')+' this month <span class="cal-sub-dot">·</span> $'+Math.round(spend).toLocaleString()+' spent <span class="cal-sub-dot">·</span> '+deliveredCt+' delivered';
+  }else{
+    $('cm-sub').textContent='No orders this month';
+  }
   const first=new Date(cY,cM,1).getDay(),days=new Date(cY,cM+1,0).getDate(),prev=new Date(cY,cM,0).getDate();
-  const today=new Date(),ods=new Set(mo.map(o=>parseInt(o.date.split('-')[2])));
+  const today=new Date();
+  const byDay={};
+  mo.forEach(o=>{const d=parseInt(o.date.split('-')[2]);(byDay[d]=byDay[d]||[]).push(o);});
   let html='';
   for(let i=0;i<first;i++)html+='<div class="cal-cell om">'+(prev-first+i+1)+'</div>';
   for(let d=1;d<=days;d++){
     const isT=today.getFullYear()===cY&&today.getMonth()===cM&&today.getDate()===d;
     const isS=cSel===d&&!isT;
-    html+='<div class="cal-cell'+(isT?' today':'')+(isS?' sel':'')+(ods.has(d)?' has-o':'')+'" onclick="selDay('+d+')">'+d+'</div>';
+    const dayOrders=byDay[d]||[];
+    let extra='';
+    if(dayOrders.length){
+      const statuses=[...new Set(dayOrders.map(o=>o.status))];
+      const dots=statuses.slice(0,3).map(s=>'<span class="cal-dot" style="background:'+(SC[s]||'var(--accent)')+';"></span>').join('')+
+        (statuses.length>3?'<span class="cal-dot-more">+'+(statuses.length-3)+'</span>':'');
+      extra='<div class="cal-dots">'+dots+'</div>'+(dayOrders.length>1?'<span class="cal-day-badge">'+dayOrders.length+'</span>':'');
+    }
+    html+='<div class="cal-cell'+(isT?' today':'')+(isS?' sel':'')+(dayOrders.length?' has-o':'')+'" onclick="selDay('+d+')">'+d+extra+'</div>';
   }
   const rem=(first+days)%7;if(rem>0)for(let i=1;i<=7-rem;i++)html+='<div class="cal-cell om">'+i+'</div>';
-  $('cgrid').innerHTML=html;rCalDay();
+  const grid=$('cgrid');
+  grid.innerHTML=html;
+  grid.classList.remove('cal-slide-l','cal-slide-r');
+  if(_calDir){ void grid.offsetWidth; grid.classList.add(_calDir==='next'?'cal-slide-l':'cal-slide-r'); }
+  _calDir='';
+  rCalDay();
 }
 function selDay(d){cSel=d;rCal();}
 function rCalDay(){
@@ -820,8 +1465,8 @@ function rCalDay(){
     '</div>';
   }).join('');
 }
-function cPrev(){cM--;if(cM<0){cM=11;cY--;}cSel=1;rCal();}
-function cNext(){cM++;if(cM>11){cM=0;cY++;}cSel=1;rCal();}
+function cPrev(){cM--;if(cM<0){cM=11;cY--;}cSel=1;_calDir='prev';rCal();}
+function cNext(){cM++;if(cM>11){cM=0;cY++;}cSel=1;_calDir='next';rCal();}
 function cToday(){const t=new Date();cY=t.getFullYear();cM=t.getMonth();cSel=t.getDate();rCal();}
 
 // ── SYNC: multiple IMAP accounts ──────────────────────────────────
@@ -848,14 +1493,63 @@ function providerIcon(provider){
   return'<i class="ti ti-mail" style="font-size:18px;color:var(--txt2);"></i>';
 }
 function providerLabel(provider){return provider==='gmail'?'Gmail':provider==='icloud'?'iCloud Mail':provider==='outlook'?'Outlook':'Custom IMAP';}
+// Per-account last-synced/health lives in localStorage, keyed by email — kept
+// separate from `imapAccounts` (which is refetched wholesale from the server
+// on every load, so anything stored directly on those objects would be lost).
+function getAcctSyncMeta(){try{return JSON.parse(localStorage.getItem('po_acctSyncMeta')||'{}');}catch(_){return{};}}
+function setAcctSyncMeta(email,meta){
+  const all=getAcctSyncMeta();
+  all[email.toLowerCase()]=meta;
+  localStorage.setItem('po_acctSyncMeta',JSON.stringify(all));
+}
 function renderAccountList(){
   const el=$('account-list');if(!el)return;
   if(!imapAccounts.length){el.innerHTML='<div style="font-size:14px;color:var(--txt3);padding:8px 0;">No accounts connected yet — click below to add one.</div>';return;}
-  el.innerHTML=imapAccounts.map(a=>
-    '<div class="srow"><div class="sico" style="background:var(--bg3);">'+providerIcon(a.provider)+'</div>'+
-    '<div class="sinfo"><h4>'+escHtml(a.email)+'</h4><p>'+providerLabel(a.provider)+' · Connected</p></div>'+
-    '<button class="sbtn" onclick="disconnectAccount(\''+a.email.replace(/'/g,"\\'")+'\')">Disconnect</button></div>'
-  ).join('');
+  const meta=getAcctSyncMeta();
+  el.innerHTML=imapAccounts.map(a=>{
+    const m=meta[a.email.toLowerCase()];
+    const health=!m?'amber':(m.ok?'green':'red');
+    const status=!m?'Never synced':(m.ok?'Synced '+timeAgo(m.lastSync):'Sync failed '+timeAgo(m.lastSync));
+    return '<div class="srow"><div class="sico" style="background:var(--bg3);">'+providerIcon(a.provider)+'</div>'+
+    '<div class="sinfo"><h4><span class="acct-health-dot '+health+'" title="'+status+'"></span>'+escHtml(a.email)+'</h4><p>'+providerLabel(a.provider)+' · '+status+'</p></div>'+
+    '<button class="sbtn" onclick="disconnectAccount(\''+a.email.replace(/'/g,"\\'")+'\')">Disconnect</button></div>';
+  }).join('');
+}
+// ── SYNC HISTORY — localStorage log of past scans (mirrors the po_orders/
+// po_settings pattern), so the Sync page has something to show besides a
+// bare connect form + a scan button that forgets its own results on nav.
+function loadSyncHistory(){try{return JSON.parse(localStorage.getItem('po_syncHistory')||'[]');}catch(_){return[];}}
+function pushSyncHistory(entry){
+  const hist=loadSyncHistory();
+  hist.unshift(entry);
+  if(hist.length>20)hist.length=20;
+  localStorage.setItem('po_syncHistory',JSON.stringify(hist));
+}
+function renderSyncHistory(){
+  const el=$('sync-history');if(!el)return;
+  const hist=loadSyncHistory().slice(0,5);
+  if(!hist.length){el.innerHTML='<div class="notif-empty">No syncs yet — connect an account and hit Scan inbox.</div>';return;}
+  el.innerHTML=hist.map(h=>{
+    const hasErr=h.errors&&h.errors.length;
+    const health=hasErr?'red':(h.added>0?'green':'amber');
+    const summary=hasErr?h.errors.length+' error'+(h.errors.length>1?'s':''):h.found+' found · '+h.added+' new';
+    return '<div class="sync-hist-item"><span class="acct-health-dot '+health+'"></span>'+
+      '<div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHtml(h.accountLabel||'')+'</div>'+
+      '<div style="font-size:11px;color:var(--txt3);font-weight:500;">'+summary+'</div></div>'+
+      '<div style="font-size:11px;color:var(--txt3);flex-shrink:0;">'+timeAgo(h.ts)+'</div></div>';
+  }).join('');
+}
+// Surfaces the scan-window/poll-interval settings (otherwise buried in the
+// Settings modal) right on the Sync page, where they're actually relevant.
+function updateScanMeta(){
+  const el=$('scan-meta');if(!el)return;
+  const days=localStorage.getItem('ss_scanDays')||'30';
+  const mins=localStorage.getItem('ss_pollInterval')||'5';
+  el.innerHTML='Scanning last '+days+' days · Auto-sync every '+mins+' min · <span style="color:var(--accent);cursor:pointer;text-decoration:underline;" onclick="openSettings()">Change in Settings</span>';
+}
+function copyWebhookUrl(){
+  const url=$('webhook-url-display').textContent;
+  navigator.clipboard.writeText(url).then(()=>showToast('Webhook URL copied')).catch(()=>showToast('Could not copy — select and copy manually','error'));
 }
 // Accounts now live server-side, scoped to the logged-in user (so they follow
 // you across devices/browsers instead of being stuck in one browser's storage).
@@ -888,8 +1582,8 @@ async function runScan(){
   if(!serverOnline){showToast('Server offline — run node server.js first','error');return;}
   if(!imapAccounts.length){showToast('Connect an email account first','warn');return;}
   const scanDays=parseInt(localStorage.getItem('ss_scanDays'))||30;
-  $('det-zone').innerHTML='<div style="color:var(--txt3);font-size:13px;padding:14px 0;font-weight:600;display:flex;align-items:center;gap:8px;"><i class="ti ti-loader-2" style="animation:spin 1s linear infinite;display:inline-block;font-size:19px;"></i> Scanning '+imapAccounts.length+' account'+(imapAccounts.length>1?'s':'')+' — may take a minute…</div>';
-  const allFound=[];const errors=[];
+  $('det-zone').innerHTML='<div style="color:var(--txt3);font-size:13px;padding:14px 0;font-weight:600;display:flex;align-items:center;gap:8px;"><img src="/assets/favicon.png" width="20" height="20" alt="" class="brand-loader"/> Scanning '+imapAccounts.length+' account'+(imapAccounts.length>1?'s':'')+' — may take a minute…</div>';
+  const allFound=[];const errors=[];const now=new Date().toISOString();
   for(const acct of imapAccounts){
     try{
       const cfg={...acct,scanDays};
@@ -897,13 +1591,18 @@ async function runScan(){
       const data=await res.json();
       if(!data.ok)throw new Error(data.message);
       allFound.push(...(data.orders||[]));
-    }catch(err){errors.push(acct.email+': '+err.message);}
+      setAcctSyncMeta(acct.email,{lastSync:now,ok:true});
+    }catch(err){errors.push(acct.email+': '+err.message);setAcctSyncMeta(acct.email,{lastSync:now,ok:false});}
   }
   const found=allFound;
-  // Mark duplicates
-  const marked=found.map(f=>({...f,isDup:isDuplicate(f)}));
+  // Mark duplicates; also flag which "new" ones are really status updates to
+  // an order we already track (delivered/shipped notices) so the button can
+  // say Update instead of Import.
+  const marked=found.map(f=>({...f,isDup:isDuplicate(f),isUpdate:!isDuplicate(f)&&!!findExisting(f)}));
   const newOnes=marked.filter(f=>!f.isDup);
   const dups=marked.filter(f=>f.isDup);
+  pushSyncHistory({ts:now,accountLabel:imapAccounts.length===1?imapAccounts[0].email:imapAccounts.length+' accounts',found:found.length,added:newOnes.length,errors});
+  renderAccountList();renderSyncHistory();
   window._det=newOnes;
   const errorHtml=errors.length?'<div style="background:rgba(255,95,87,.12);border:1px solid rgba(255,95,87,.25);border-radius:9px;padding:12px;font-size:13px;color:var(--red);font-weight:600;margin-bottom:10px;">'+errors.map(escHtml).join('<br>')+'</div>':'';
   if(!newOnes.length&&!dups.length){$('det-zone').innerHTML=errorHtml+'<div style="color:var(--txt3);font-size:14px;font-weight:700;padding:14px 0;">No new order emails found in the last '+scanDays+' days.</div>';return;}
@@ -918,7 +1617,7 @@ async function runScan(){
           '<div class="di-name">'+escHtml((d.name||'').slice(0,60))+'</div>'+
           '<div class="di-sub">'+escHtml(d.store||'')+' · '+escHtml(d.date||'')+(d.price?' · $'+money(d.price):'')+' · <span style="color:'+(SC[d.status]||'var(--txt3)')+';">'+(SL[d.status]||d.status)+'</span></div>'+
         '</div>'+
-        '<button class="di-add" id="det-btn-'+i+'" onclick="impD('+i+')">Import</button>'+
+        '<button class="di-add" id="det-btn-'+i+'" onclick="impD('+i+')">'+(d.isUpdate?'Update':'Import')+'</button>'+
       '</div>'
     ).join('')+
     dups.slice(0,5).map(d=>
@@ -937,16 +1636,44 @@ async function runScan(){
 const STATUS_RANK={preorder:0,ordered:1,shipped:2,delivered:3,cancelled:4};
 function statusRank(s){return STATUS_RANK[s]!=null?STATUS_RANK[s]:1;}
 
-// Find the existing order this email belongs to (same order number + store).
+// Find the existing order this email belongs to. Matching strength, in order:
+// order number + store → tracking number → exact same email seen before →
+// "only open order from this store" heuristic → name+date+store fallback.
 function findExisting(d){
   const num=(d.orderNum||'').trim().toLowerCase();
-  if(num) return orders.find(o=>(o.orderNum||'').trim().toLowerCase()===num && (o.store||'').toLowerCase()===(d.store||'').toLowerCase());
-  // No order number: only treat it as the SAME order if it's the exact same email
-  // (matching emailId) being re-scanned — never merge by name+date+store alone,
+  if(num){
+    const ex=orders.find(o=>(o.orderNum||'').trim().toLowerCase()===num && (o.store||'').toLowerCase()===(d.store||'').toLowerCase());
+    if(ex) return ex;
+    // Don't stop here: delivery notifications often carry a different reference
+    // (or none) than the confirmation did — tracking number is the stronger key.
+  }
+  // A tracking number is unique per shipment, so a status email carrying the
+  // same tracking number IS the same order — this is what lets a "delivered"
+  // email actually flip the original card instead of importing as a new one.
+  if(d.tracking){
+    const ex=orders.find(o=>o.tracking&&o.tracking===d.tracking);
+    if(ex) return ex;
+  }
+  // Exact same email seen before (original import or a later status update).
+  if(d.emailId){
+    const ex=orders.find(o=>o.emailId===d.emailId||(o.emailIds||[]).includes(d.emailId));
+    if(ex) return ex;
+  }
+  // Status-update emails (shipped/delivered/cancelled) with no number and no
+  // tracking to key on: if exactly ONE order from this store is still at an
+  // earlier stage, it can only be that one. With two or more candidates we
+  // deliberately do nothing — guessing wrong would corrupt a different order.
+  if(d.status==='shipped'||d.status==='delivered'||d.status==='cancelled'){
+    const store=(d.store||'').toLowerCase();
+    const cands=orders.filter(o=>(o.store||'').toLowerCase()===store&&o.status!=='cancelled'&&statusRank(o.status)<statusRank(d.status));
+    if(cands.length===1) return cands[0];
+  }
+  // Last resort: identical subject on the same day from the same store — but
+  // never merge by this alone when either side has an order number or emailId,
   // since distinct same-day orders often share an identical subject template
   // (that bug used to silently swallow separate real orders into one card).
-  if(d.emailId) return orders.find(o=>o.emailId===d.emailId);
-  return orders.find(o=>!(o.orderNum||'').trim() && !o.emailId && o.name===d.name && o.date===d.date && o.store===d.store);
+  if(!num&&!d.emailId) return orders.find(o=>!(o.orderNum||'').trim() && !o.emailId && o.name===d.name && o.date===d.date && o.store===d.store);
+  return undefined;
 }
 
 function todayISO(){return new Date().toISOString().split('T')[0];}
@@ -956,6 +1683,12 @@ function todayISO(){return new Date().toISOString().split('T')[0];}
 function upsertOrder(d){
   const ex=findExisting(d);
   if(ex){
+    // Remember every email that fed this order, so a future re-scan of the
+    // same status-update email is recognized as "already applied".
+    if(d.emailId&&d.emailId!==ex.emailId){
+      ex.emailIds=ex.emailIds||[];
+      if(!ex.emailIds.includes(d.emailId))ex.emailIds.push(d.emailId);
+    }
     if(statusRank(d.status)>=statusRank(ex.status)){
       if(d.status!==ex.status){
         if(!ex.history)ex.history=[{status:ex.status,date:ex.date||todayISO()}];
@@ -1042,7 +1775,7 @@ const INSIGHT_WIDGETS={
       gradient.addColorStop(1,'rgba(102,58,243,0)');
       charts.push(new Chart(ac,{
         type:'line',
-        data:{labels:ctx.activityTrend.map(w=>w.label),datasets:[{data:ctx.activityTrend.map(w=>w.count),borderColor:'#663af3',backgroundColor:gradient,fill:true,tension:.4,pointRadius:0,pointHoverRadius:4,pointBackgroundColor:'#663af3',borderWidth:2.5}]},
+        data:{labels:ctx.activityTrend.map(w=>w.label),datasets:[{data:ctx.activityTrend.map(w=>w.count),borderColor:'#7c5cff',backgroundColor:gradient,fill:true,tension:.4,pointRadius:0,pointHoverRadius:4,pointBackgroundColor:'#7c5cff',borderWidth:2.5}]},
         options:{responsive:true,maintainAspectRatio:false,
           plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw+' order'+(c.raw===1?'':'s')}}},
           scales:{x:{grid:{display:false},ticks:{color:'#8a8a94',font:{size:10}}},y:{beginAtZero:true,ticks:{stepSize:1,color:'#8a8a94',font:{size:11}},grid:{color:'rgba(255,255,255,0.04)'},border:{display:false}}},
@@ -1068,7 +1801,7 @@ const INSIGHT_WIDGETS={
   },
   'on-time-gauge':{label:'On-time delivery gauge',
     html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'on-time-gauge\')" title="Remove" aria-label="Remove on-time delivery gauge widget"><i class="ti ti-x"></i></button><h3>On-time delivery</h3><div style="height:200px;position:relative;display:flex;align-items:center;justify-content:center;"><div style="width:150px;height:150px;position:relative;"><canvas id="insightsGaugeChart"></canvas></div></div></div>',
-    after:ctx=>{ renderGaugeChart('insightsGaugeChart',ctx.onTimePct,'#663af3','rgba(255,255,255,0.08)',charts); }
+    after:ctx=>{ renderGaugeChart('insightsGaugeChart',ctx.onTimePct,'#7c5cff','rgba(255,255,255,0.08)',charts); }
   },
 };
 function getActiveWidgets(){
@@ -1165,7 +1898,7 @@ function computeActivityTrend(){
 }
 async function rInsights(){
   const t=orders.length;
-  if(!t){$('ins-inner').innerHTML='<div class="empty-s"><i class="ti ti-chart-bar"></i><p>Add orders to see insights</p></div>';return;}
+  if(!t){$('ins-inner').innerHTML='<div class="empty-s empty-brand"><img src="/assets/favicon.png" width="56" height="56" alt=""/><p>Add orders to see insights</p></div>';return;}
   const fmt=n=>Math.round(n||0).toLocaleString();
   const spend=orders.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+(o.price||0),0);
   const cxSpend=orders.filter(o=>o.status==='cancelled').reduce((s,o)=>s+(o.price||0),0);
@@ -1183,7 +1916,7 @@ async function rInsights(){
   // Rolling last-3-months spend (not hardcoded April/May/June, so it never goes stale)
   function mSpend(m,y){return orders.filter(o=>{if(!o.date||o.status==='cancelled')return false;const d=new Date(o.date+'T00:00:00');return d.getMonth()===m&&d.getFullYear()===y;}).reduce((s,o)=>s+(o.price||0),0);}
   const nowD=new Date();
-  const monthlyColors=['#663af3','#9c8cec','#4fbf8b'];
+  const monthlyColors=['#7c5cff','#c4b5fd','#4fbf8b'];
   const monthlyData=[2,1,0].map((i,idx)=>{
     const d=new Date(nowD.getFullYear(),nowD.getMonth()-i,1);
     return {label:d.toLocaleDateString('en-US',{month:'long'}),year:d.getFullYear(),total:Math.round(mSpend(d.getMonth(),d.getFullYear())),color:monthlyColors[idx]};
@@ -1192,7 +1925,7 @@ async function rInsights(){
   const monthYearLbl=monthlyData[0].year===monthlyData[2].year?String(monthlyData[0].year):monthlyData[0].year+'–'+monthlyData[2].year;
   const thisMonthSpend=mSpend(nowD.getMonth(),nowD.getFullYear());
 
-  // Same on-time definition rDashboardSide uses: delivered orders that had an ETA,
+  // Same on-time definition rDashboard uses: delivered orders that had an ETA,
   // compared against when they actually landed.
   const deliveredWithEta=orders.filter(o=>o.status==='delivered'&&o.expectedDelivery);
   let onTimePct=null;
@@ -1261,11 +1994,14 @@ function saveO(){
 }
 
 // ── CHECKOUT CARD GENERATOR ─────────────────────────────────────────
-// Dark-first themes — a low-alpha accent wash over a near-black base, never
-// a loud saturated gradient. Accent drives the hero number, glow and badge.
+// Aurora-native themes — a low-alpha accent wash over the app's own deep
+// indigo-black base, never a loud saturated gradient. Accent drives the
+// hero number, sparkline, glow and badge. Violet is the true "this app"
+// default; the other three exist for contrast against real order-status
+// colors when someone wants the card to pop differently.
 const CARD_THEMES=[
-  {accent:'#D4A63A'},
-  {accent:'#4F8EF7'},
+  {accent:'#7c5cff'},
+  {accent:'#6eb3f7'},
   {accent:'#3DDC84'},
   {accent:'#E8E8EA'},
 ];
@@ -1286,6 +2022,7 @@ function computeCardStats(){
   orders.forEach(o=>{ if(o.store) storeCounts[o.store]=(storeCounts[o.store]||0)+1; });
   let topStore='—', topCount=0;
   Object.entries(storeCounts).forEach(([s,c])=>{ if(c>topCount){topStore=s;topCount=c;} });
+  const topStoresList=Object.entries(storeCounts).sort((a,b)=>b[1]-a[1]).slice(0,3);
 
   // Rolling month-over-month spend trend — never hardcoded, and never shown
   // unless there's a real prior-month baseline to compare against.
@@ -1296,10 +2033,18 @@ function computeCardStats(){
   const prevMonth=monthSpend(prev.getMonth(),prev.getFullYear());
   const trendPct=prevMonth>0?Math.round(((thisMonth-prevMonth)/prevMonth)*100):null;
 
+  // Same rolling 6-month window the Dashboard's hero sparkline uses, so the
+  // checkout card's mini trend line is built from real monthly totals too.
+  const monthlyTrend=[];
+  for(let i=5;i>=0;i--){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    monthlyTrend.push(monthSpend(d.getMonth(),d.getFullYear()));
+  }
+
   const dated=orders.filter(o=>o.date&&o.status!=='cancelled').sort((a,b)=>a.date<b.date?-1:1);
   const trackingSince=dated.length?new Date(dated[0].date+'T00:00:00').toLocaleDateString('en-US',{month:'short',year:'numeric'}):null;
 
-  return { spend, total:orders.length, onTimePct, topStore, topCount, trendPct, trackingSince };
+  return { spend, total:orders.length, onTimePct, topStore, topCount, topStoresList, trendPct, trackingSince, monthlyTrend };
 }
 // A tier based only on the user's own order count — never a comparison to
 // other real users, since we don't have that data.
@@ -1388,8 +2133,8 @@ function renderCheckoutCard(){
   const ctx=canvas.getContext('2d');
   const W=canvas.width, H=canvas.height;
   ctx.clearRect(0,0,W,H);
-  const accent=(cardBgMode==='image')?'#D4A63A':CARD_THEMES[cardBgIndex].accent;
-  const BASE='#121214', PANEL='#18181B', BORDER='rgba(255,255,255,0.08)', TXT2='rgba(255,255,255,0.65)';
+  const accent=(cardBgMode==='image')?'#7c5cff':CARD_THEMES[cardBgIndex].accent;
+  const BASE='#0a0a17', PANEL='#1b1d38', BORDER='rgba(255,255,255,0.08)', TXT2='rgba(255,255,255,0.65)';
 
   ctx.save();
   roundRect(ctx,0,0,W,H,22); ctx.clip();
@@ -1473,13 +2218,38 @@ function renderCheckoutCard(){
     ctx.beginPath(); ctx.arc(px,py,pr,0,Math.PI*2); ctx.fill();
   }
 
+  // Hand-drawn 6-month spend sparkline, low-opacity behind the hero number —
+  // pure canvas path drawing (no Chart.js) since this card must render even
+  // if Insights was never opened. Real monthly totals, not fabricated data.
+  if(stats.monthlyTrend&&stats.monthlyTrend.some(v=>v>0)){
+    const sx=64, sw=W-128, sy=200, sh=100, n=stats.monthlyTrend.length;
+    const maxV=Math.max(1,...stats.monthlyTrend);
+    const pts=stats.monthlyTrend.map((v,i)=>[sx+i*(sw/(n-1)),sy+sh*(1-v/maxV)]);
+    ctx.save();
+    ctx.globalAlpha=0.32;
+    ctx.beginPath();
+    pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
+    ctx.lineTo(pts[pts.length-1][0],sy+sh);
+    ctx.lineTo(pts[0][0],sy+sh);
+    ctx.closePath();
+    const sparkFill=ctx.createLinearGradient(0,sy,0,sy+sh);
+    sparkFill.addColorStop(0,hexToRgba(accent,0.35));
+    sparkFill.addColorStop(1,hexToRgba(accent,0));
+    ctx.fillStyle=sparkFill; ctx.fill();
+    ctx.beginPath();
+    pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
+    ctx.strokeStyle=accent; ctx.lineWidth=2; ctx.lineJoin='round'; ctx.lineCap='round';
+    ctx.stroke();
+    ctx.restore();
+  }
+
   ctx.save();
   ctx.shadowColor=hexToRgba(accent,0.4);
   ctx.shadowBlur=28;
   const heroGrad=ctx.createLinearGradient(0,172,0,300);
-  heroGrad.addColorStop(0,'#f4e2b8');
+  heroGrad.addColorStop(0,shadeHex(accent,0.55));
   heroGrad.addColorStop(0.45,accent);
-  heroGrad.addColorStop(1,accent==='#E8E8EA'?'#b9b9bd':'#9c7420');
+  heroGrad.addColorStop(1,shadeHex(accent,-0.35));
   ctx.fillStyle=heroGrad;
   ctx.font='900 106px Inter, sans-serif';
   ctx.fillText('$'+Math.round(stats.spend).toLocaleString(), W/2, 176);
@@ -1504,6 +2274,30 @@ function renderCheckoutCard(){
     const label='Tracking since '+stats.trackingSince;
     const tw=ctx.measureText(label).width;
     ctx.fillText(label, W/2-tw/2, 296);
+  }
+
+  // Compact "top stores" strip — real tally, small pills between the trend
+  // line and the divider.
+  if(stats.topStoresList&&stats.topStoresList.length){
+    ctx.font='700 10.5px Inter, sans-serif';
+    const pillH=22,pillGap=10,padX=12;
+    const parts=stats.topStoresList.map(([name])=>{
+      const label=name.length>14?name.slice(0,13)+'…':name;
+      return {label,w:ctx.measureText(label).width+padX*2+18};
+    });
+    const totalW=parts.reduce((s,p)=>s+p.w,0)+pillGap*(parts.length-1);
+    let px=W/2-totalW/2;
+    const py=314;
+    parts.forEach(p=>{
+      ctx.fillStyle='rgba(255,255,255,0.05)';
+      roundRect(ctx,px,py,p.w,pillH,pillH/2); ctx.fill();
+      ctx.strokeStyle=BORDER; ctx.lineWidth=1;
+      roundRect(ctx,px,py,p.w,pillH,pillH/2); ctx.stroke();
+      drawCardIcon(ctx,'store',px+16,py+pillH/2,9,accent);
+      ctx.fillStyle=TXT2; ctx.textAlign='left';
+      ctx.fillText(p.label,px+26,py+6);
+      px+=p.w+pillGap;
+    });
   }
 
   drawBarcodeDivider(ctx,W/2,340,160);
@@ -1549,7 +2343,7 @@ function renderCheckoutCard(){
   [5,9,4,11,6].forEach(h=>{ ctx.fillRect(wx,H-36-h/2,1.6,h); wx+=5; });
   ctx.fillStyle=TXT2;
   ctx.font='500 12px Inter, sans-serif';
-  ctx.fillText('Tracked with ShipmentScope  ·  '+new Date().toLocaleDateString('en-US',{month:'long',year:'numeric'}), wx+10, H-40);
+  ctx.fillText('Tracked with ShipmentScope  ·  '+new Date().toLocaleDateString('en-US',{month:'long',year:'numeric'})+'  ·  shipmentscope.app', wx+10, H-40);
 
   ctx.strokeStyle=BORDER; ctx.lineWidth=1;
   roundRect(ctx,0.5,0.5,W-1,H-1,22); ctx.stroke();
@@ -1559,6 +2353,16 @@ function hexToRgba(hex,alpha){
   const h=hex.replace('#','');
   const r=parseInt(h.substring(0,2),16), g=parseInt(h.substring(2,4),16), b=parseInt(h.substring(4,6),16);
   return 'rgba('+r+','+g+','+b+','+alpha+')';
+}
+// Lighten (percent>0) or darken (percent<0) a hex color toward white/black —
+// used for the hero-number gradient stops so they follow whichever accent
+// theme is selected, instead of a hardcoded gold-only gradient.
+function shadeHex(hex,percent){
+  const n=parseInt(hex.replace('#',''),16);
+  let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  if(percent>0){r+=(255-r)*percent;g+=(255-g)*percent;b+=(255-b)*percent;}
+  else{r*=(1+percent);g*=(1+percent);b*=(1+percent);}
+  return '#'+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
 }
 function roundRect(ctx,x,y,w,h,r){
   ctx.beginPath();
@@ -1588,7 +2392,7 @@ function openSettings(){
   Object.keys(settings).forEach(k=>{const t=$('tog-'+k);if(t)t.className='toggle'+(settings[k]?' on':'');});
   renderAccentSwatches();
   setDensityControl(localStorage.getItem('ss_density')||'comfortable');
-  $('default-tab').value=localStorage.getItem('ss_defaultTab')||'orders';
+  $('default-tab').value=localStorage.getItem('ss_defaultTab')||'dashboard';
   $('default-sort').value=localStorage.getItem('ss_defaultSort')||'date-desc';
   $('poll-interval').value=localStorage.getItem('ss_pollInterval')||'5';
   $('scan-days').value=localStorage.getItem('ss_scanDays')||'30';
@@ -1629,14 +2433,27 @@ function notifyDesktop(title,body){
 }
 
 // ── APPEARANCE: accent color ──────────────────────────────────────
-const ACCENT_COLORS=[{name:'Iris',hex:'#663af3'},{name:'Ember',hex:'#e46d4c'},{name:'Azure',hex:'#027dea'},{name:'Mint',hex:'#269684'}];
+// Each swatch drives a single-hue gradient (deep -> core -> light), not just
+// a flat color, so the "Aurora" gradient system (logo, buttons, active nav,
+// headline/stat text — see --grad-brand in styles.css) stays one consistent
+// hue no matter which accent the user picks, instead of clashing like a
+// flat two-tone swap would.
+const ACCENT_COLORS=[{name:'Iris',hex:'#7c5cff'},{name:'Ember',hex:'#e46d4c'},{name:'Azure',hex:'#3b82f6'},{name:'Mint',hex:'#269684'}];
+function shadeHex(hex,percent){
+  const h=hex.replace('#','');
+  const r=parseInt(h.substring(0,2),16),g=parseInt(h.substring(2,4),16),b=parseInt(h.substring(4,6),16);
+  const mix=(c)=>Math.round(percent<0?c*(1+percent):c+(255-c)*percent);
+  return '#'+[mix(r),mix(g),mix(b)].map(v=>Math.max(0,Math.min(255,v)).toString(16).padStart(2,'0')).join('');
+}
 function applyAccent(hex){
   document.documentElement.style.setProperty('--accent',hex);
   document.documentElement.style.setProperty('--accent-d',hexToRgba(hex,0.13));
+  document.documentElement.style.setProperty('--accent-1',shadeHex(hex,-0.35));
+  document.documentElement.style.setProperty('--accent-3',shadeHex(hex,0.4));
 }
 function setAccent(hex){applyAccent(hex);localStorage.setItem('ss_accent',hex);renderAccentSwatches();}
 function renderAccentSwatches(){
-  const cur=localStorage.getItem('ss_accent')||'#663af3';
+  const cur=localStorage.getItem('ss_accent')||'#7c5cff';
   const el=$('accent-swatches');if(!el)return;
   el.innerHTML=ACCENT_COLORS.map(c=>'<div class="accent-sw'+(c.hex===cur?' sel':'')+'" style="background:'+c.hex+';" onclick="setAccent(\''+c.hex+'\')" title="'+c.name+'"></div>').join('');
 }
@@ -1665,6 +2482,7 @@ function setPollInterval(mins){
   localStorage.setItem('ss_pollInterval',m);
   $('poll-interval').value=m;
   restartPollTimer();
+  safeRun(updateScanMeta);
   showToast('Now checking every '+m+' minute'+(m!==1?'s':''));
 }
 function restartPollTimer(){
@@ -1676,6 +2494,7 @@ function setScanDays(days){
   const d=Math.min(180,Math.max(1,parseInt(days)||30));
   localStorage.setItem('ss_scanDays',d);
   $('scan-days').value=d;
+  safeRun(updateScanMeta);
 }
 function clearAll(){if(!confirm('Delete ALL '+orders.length+' orders? This cannot be undone.'))return;orders=[];save();rOrders();rStats();closeSettings();showToast('All orders cleared','warn');}
 
@@ -1833,13 +2652,16 @@ setInterval(rotateHeadline,4200);
 
 // ── COMMAND PALETTE (⌘K) ─────────────────────────────────────────
 const CMDK_PAGES=[
+  {name:'Dashboard',icon:'ti-layout-dashboard',action:()=>sw('dashboard')},
   {name:'Orders',icon:'ti-package',action:()=>sw('orders')},
+  {name:'Inventory',icon:'ti-building-warehouse',action:()=>sw('inventory')},
   {name:'Tracking',icon:'ti-truck',action:()=>sw('tracking')},
   {name:'Emails',icon:'ti-mail',action:()=>sw('emails')},
   {name:'Calendar',icon:'ti-calendar',action:()=>sw('calendar')},
   {name:'Sync',icon:'ti-refresh',action:()=>sw('sync')},
   {name:'Insights',icon:'ti-chart-bar',action:()=>sw('insights')},
   {name:'Add order',icon:'ti-plus',action:()=>openM()},
+  {name:'Add inventory item',icon:'ti-plus',action:()=>openInvModal()},
   {name:'Create checkout card',icon:'ti-photo',action:()=>openCheckoutCard()},
   {name:'Settings',icon:'ti-settings',action:()=>openSettings()},
 ];
@@ -1863,9 +2685,12 @@ function renderCommandResults(q){
   const matches=orders.filter(o=>
     (o.name||'').toLowerCase().includes(q)||(o.store||'').toLowerCase().includes(q)||
     (o.tracking||'').toLowerCase().includes(q)||(o.orderNum||'').toLowerCase().includes(q)
-  ).slice(0,8);
+  ).slice(0,6);
+  const invMatches=inventory.filter(x=>
+    (x.name||'').toLowerCase().includes(q)||(x.set||'').toLowerCase().includes(q)||(x.store||'').toLowerCase().includes(q)
+  ).slice(0,6);
   const pageMatches=CMDK_PAGES.filter(p=>p.name.toLowerCase().includes(q));
-  if(!matches.length&&!pageMatches.length){el.innerHTML='<div class="cmdk-empty">No matches for "'+escHtml(q)+'"</div>';return;}
+  if(!matches.length&&!invMatches.length&&!pageMatches.length){el.innerHTML='<div class="cmdk-empty">No matches for "'+escHtml(q)+'"</div>';return;}
   let html='';
   if(pageMatches.length){
     html+='<div class="cmdk-section-lbl">Go to</div>'+pageMatches.map(p=>{
@@ -1879,8 +2704,14 @@ function renderCommandResults(q){
       return '<div class="cmdk-item" onclick="cmdkOpenOrder(\''+o.id+'\')"><div class="cmdk-item-ico '+cat.c+'">'+cat.e+'</div><div class="cmdk-item-info"><div class="cmdk-item-name">'+escHtml(o.name||'Unnamed order')+'</div><div class="cmdk-item-sub">'+escHtml(o.store||'')+' · '+(SL[o.status]||o.status)+'</div></div></div>';
     }).join('');
   }
+  if(invMatches.length){
+    html+='<div class="cmdk-section-lbl">Inventory</div>'+invMatches.map(x=>
+      '<div class="cmdk-item" onclick="cmdkOpenInv(\''+x.id+'\')"><div class="cmdk-item-ico" style="background:var(--accent-d);color:var(--accent);">'+(INV_CATS[x.cat]||INV_CATS.other).e+'</div><div class="cmdk-item-info"><div class="cmdk-item-name">'+escHtml(x.name||'Untitled')+'</div><div class="cmdk-item-sub">'+escHtml(x.set||x.store||'')+' · '+INV_STATUS_LABEL[invEffStatus(x)]+'</div></div></div>'
+    ).join('');
+  }
   el.innerHTML=html;
 }
+function cmdkOpenInv(id){closeCommandPalette();sw('inventory');const x=inventory.find(i=>String(i.id)===String(id));if(x)openInvModal(x.id);}
 
 // ── AUTH: login / signup / logout ─────────────────────────────────
 let authMode='login', currentUserEmail='', currentWebhookToken='';
@@ -1993,10 +2824,12 @@ async function initAppAfterLogin(){
   guardLocalCacheOwnership();
   sanitizeOrders(); // clean any bad price values from older imports so rendering can't crash
   // One-time migration: browsers that saved a custom accent before the Iris
-  // theme shipped would otherwise stay stuck on the old blue forever.
+  // theme shipped would otherwise stay stuck on the old blue forever. Same
+  // deal for the 2026-07-04 Aurora revamp — anyone who'd saved the old flat
+  // Iris/Azure tones gets bumped to the new gradient-matched shades.
   const savedAccent=localStorage.getItem('ss_accent');
-  if(savedAccent==='#5b9ee6'||savedAccent==='#5266eb')localStorage.removeItem('ss_accent');
-  applyAccent(localStorage.getItem('ss_accent')||'#663af3');
+  if(savedAccent==='#5b9ee6'||savedAccent==='#5266eb'||savedAccent==='#663af3'||savedAccent==='#027dea')localStorage.removeItem('ss_accent');
+  applyAccent(localStorage.getItem('ss_accent')||'#7c5cff');
   setDensityControl(localStorage.getItem('ss_density')||'comfortable');
   const defaultSort=localStorage.getItem('ss_defaultSort');
   if(defaultSort&&$('sort-sel'))$('sort-sel').value=defaultSort;
@@ -2005,9 +2838,10 @@ async function initAppAfterLogin(){
   if(whEl)whEl.textContent=location.origin+'/webhook/'+currentWebhookToken;
   checkServer();
   loadOrdersFromServer();
+  loadInventoryFromServer();
   setInterval(checkServer,10000);
   restartPollTimer();
-  sw(localStorage.getItem('ss_defaultTab')||'orders');
+  sw(localStorage.getItem('ss_defaultTab')||'dashboard');
 }
 
 window.addEventListener('load',checkAuthOnLoad);

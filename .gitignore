@@ -10,3 +10,6 @@ orders.json
 # re-exports, not worth the repo weight — see assets/*.png served copies).
 assets/logo-source-4k.png
 assets/logo-alt.png
+
+# Browser-test artifacts from the Playwright MCP
+.playwright-mcp/
