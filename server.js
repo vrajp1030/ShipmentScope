@@ -779,16 +779,50 @@ async function sendMail(to, subject, html){
   const t=getMailTransport();
   if(!t){ console.log(`\n[MAIL DEV MODE — set SMTP_USER/SMTP_PASS to send for real]\n  To: ${to}\n  ${subject}\n  ${html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()}\n`); return true; }
   const from=process.env.SMTP_FROM || ('ShipmentScope <'+process.env.SMTP_USER+'>');
-  await t.sendMail({from,to,subject,html});
+  const text = html.replace(/<style[\s\S]*?<\/style>/gi,' ')
+    .replace(/<[^>]+>/g,' ')
+    .replace(/&nbsp;/g,' ')
+    .replace(/&amp;/g,'&')
+    .replace(/\s+/g,' ')
+    .trim();
+  await t.sendMail({from,to,subject,text,html});
   return true;
 }
 function twoFactorEmailHtml(code, purpose){
-  return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:440px;margin:0 auto;padding:24px;color:#1a1a2e">
-    <h2 style="font-weight:600">Your ShipmentScope verification code</h2>
-    <p>Enter this code to ${purpose==='signup'?'finish creating your account':'sign in'}:</p>
-    <div style="font-size:30px;font-weight:800;letter-spacing:8px;background:#f3f0ff;color:#5b21b6;padding:16px;border-radius:12px;text-align:center;margin:16px 0">${code}</div>
-    <p style="color:#888;font-size:13px">This code expires in 10 minutes. If you didn't request it, you can safely ignore this email.</p>
-  </div>`;
+  const action = purpose==='signup' ? 'finish creating your account' : 'sign in';
+  return `<!doctype html>
+<html>
+<body style="margin:0;padding:0;background:#f5f3ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#18142f;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">Your ShipmentScope verification code is ${code}. It expires in 10 minutes.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f3ff;padding:32px 14px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border:1px solid #e7e2ff;border-radius:18px;overflow:hidden;box-shadow:0 18px 45px rgba(52,38,123,.12);">
+          <tr>
+            <td style="padding:24px 28px 18px;background:linear-gradient(135deg,#24124f,#5b21b6 55%,#8b5cf6);">
+              <div style="font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#d9d1ff;font-weight:700;">ShipmentScope</div>
+              <div style="font-size:24px;line-height:1.25;color:#ffffff;font-weight:800;margin-top:8px;">Verify your sign-in</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:30px 28px 26px;">
+              <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#332f4d;">Enter this code to ${action}. For your security, the code expires in 10 minutes.</p>
+              <div style="background:#f2efff;border:1px solid #ded7ff;border-radius:14px;padding:20px 12px;text-align:center;margin:20px 0 18px;">
+                <div style="font-size:34px;line-height:1;letter-spacing:10px;color:#5b21b6;font-weight:900;font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace;">${code}</div>
+              </div>
+              <p style="margin:0 0 18px;font-size:13px;line-height:1.6;color:#6f6a85;">Never share this code. ShipmentScope support will never ask you for it.</p>
+              <div style="border-top:1px solid #eeeafc;padding-top:18px;margin-top:18px;">
+                <p style="margin:0;font-size:12px;line-height:1.6;color:#8a859d;">If you did not request this code, you can safely ignore this email. No changes will be made to your account.</p>
+              </div>
+            </td>
+          </tr>
+        </table>
+        <div style="max-width:520px;margin:14px auto 0;text-align:center;font-size:11px;line-height:1.5;color:#9a94b4;">ShipmentScope account security</div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 function make2faCode(){ return String(crypto.randomInt(100000, 1000000)); }
 function hash2faCode(code){ return crypto.createHash('sha256').update(String(code)).digest('hex'); }
