@@ -55,6 +55,7 @@ function writeLocalSafe(key,arr,heavyFields){
 }
 function save(){
   // 1) browser cache (works offline)  2) durable file on the computer via the server
+  pruneDeliveredOrders();
   writeLocalSafe('po_orders',orders,['emailHtml','emailText']);
   try{
     fetch(API+'/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(orders)}).catch(()=>{});
@@ -98,12 +99,14 @@ async function loadOrdersFromServer(){
   try{
     const res=await fetch(API+'/api/orders');
     const data=await res.json();
-    if(data.ok&&Array.isArray(data.orders)&&data.orders.length>=orders.length){
-      orders=data.orders;
+    if(data.ok&&Array.isArray(data.orders)){
+      const localPruned=orders.filter(o=>!shouldAutoDeleteDelivered(o));
+      orders=data.orders.length>=localPruned.length ? data.orders : localPruned;
       sanitizeOrders();
       localStorage.setItem('po_orders',JSON.stringify(orders));
       nid=Math.max(0,...orders.map(o=>o.id||0))+1;
       rOrders();rStats();
+      if(data.orders.length<localPruned.length) save();
     }else if(orders.length){
       // Server file is empty but we have local orders — push them up so they're saved durably
       save();
@@ -121,7 +124,29 @@ function fd(d){if(!d)return'';const dt=new Date(d+'T00:00:00');return dt.toLocal
 // Safe money formatter — never throws even if price is text/null/undefined.
 function money(v){const n=typeof v==='number'?v:parseFloat(v);return isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'0.00';}
 // Coerce every order's price to a real number so rendering can never crash on bad data.
-function sanitizeOrders(){orders.forEach(o=>{const n=typeof o.price==='number'?o.price:parseFloat(o.price);o.price=isFinite(n)?n:0;});}
+const DELIVERED_RETENTION_DAYS=4;
+function deliveredDateForOrder(o){
+  const hist=Array.isArray(o&&o.history)?o.history:[];
+  for(let i=hist.length-1;i>=0;i--)if(hist[i]&&hist[i].status==='delivered'&&hist[i].date)return hist[i].date;
+  return o&&o.status==='delivered'?o.date:null;
+}
+function shouldAutoDeleteDelivered(o){
+  const deliveredAt=deliveredDateForOrder(o);
+  if(!deliveredAt)return false;
+  const d=new Date(deliveredAt+'T00:00:00');
+  if(isNaN(d.getTime()))return false;
+  const cutoff=new Date();cutoff.setHours(0,0,0,0);cutoff.setDate(cutoff.getDate()-DELIVERED_RETENTION_DAYS);
+  return d<=cutoff;
+}
+function pruneDeliveredOrders(){
+  const before=orders.length;
+  orders=orders.filter(o=>!shouldAutoDeleteDelivered(o));
+  return orders.length!==before;
+}
+function sanitizeOrders(){
+  orders.forEach(o=>{const n=typeof o.price==='number'?o.price:parseFloat(o.price);o.price=isFinite(n)?n:0;});
+  pruneDeliveredOrders();
+}
 // ── Inventory derived values (never stored — always computed from cost/market/qty) ──
 function invTotalCost(x){return (x.qty||0)*(x.cost||0);}
 function invMarketValue(x){return (x.qty||0)*(x.market||0);}
@@ -784,8 +809,6 @@ function rOrders(){
 function carrierClass(c){c=(c||'').toLowerCase();if(c.includes('ups'))return'c-ups';if(c.includes('fedex'))return'c-fedex';if(c.includes('usps'))return'c-usps';if(c.includes('dhl'))return'c-dhl';return'';}
 function orderCardHTML(o,i){
   const cat=CATS[o.cat]||CATS.other;
-  const hasEmail=!!(o.emailHtml||o.emailText);
-  const hasNote=!!(o.notes&&o.notes.trim());
   const delBar=deliveryProgress(o);
   const trackHtml=o.trackingUrl?'<a class="track-link '+carrierClass(o.carrier)+'" href="'+o.trackingUrl+'" target="_blank" onclick="event.stopPropagation()"><i class="ti ti-truck" style="font-size:11px;"></i>'+escHtml(o.carrier||'Track')+'</a>':'';
   const oicoInner=isSafeImageUrl(o.image)?'<img src="'+escAttr(o.image)+'" alt="" loading="lazy" onerror="this.parentElement.innerHTML=\''+cat.e.replace(/'/g,"\\'")+'\';"/>':cat.e;
@@ -800,8 +823,6 @@ function orderCardHTML(o,i){
           '<span>'+(o.store?storeLogoInline(o.store,14):'')+escHtml(o.store||'')+'</span>'+
           (o.date?'<span>'+fd(o.date)+'</span>':'')+
           (o.orderNum?'<span>#'+escHtml(o.orderNum)+'</span>':'')+
-          (hasEmail?'<span style="color:var(--accent)"><i class="ti ti-mail" style="font-size:11px;"></i> email</span>':'')+
-          (hasNote?'<span style="color:var(--amber)"><i class="ti ti-note" style="font-size:11px;"></i> note</span>':'')+
         '</div>'+
       '</div>'+
       '<div class="ocard-right">'+
@@ -812,10 +833,7 @@ function orderCardHTML(o,i){
     delBar+
     '<div class="ocard-actions">'+
       '<div style="display:flex;align-items:center;gap:6px;" onclick="event.stopPropagation()">'+
-        trackHtml+
-        (hasEmail?'<button class="oact-btn" onclick="openEmail(\''+o.id+'\')"><i class="ti ti-mail" style="font-size:11px;"></i>View email</button>':'')+
-        '<button class="oact-btn" onclick="quickArchive('+o.id+')"><i class="ti ti-archive" style="font-size:11px;"></i>Archive</button>'+
-        '<button class="oact-btn danger" onclick="dO('+o.id+')"><i class="ti ti-trash" style="font-size:11px;"></i>Delete</button>'+
+        (trackHtml||'<span class="order-age">'+relativeTime(o.date)+'</span>')+
       '</div>'+
       '<i class="ti ti-chevron-right ocard-chevron"></i>'+
     '</div>'+
@@ -1495,12 +1513,16 @@ function showAddAccountForm(){
   applyProviderPreset();
   $('imap-fw').style.display='block';
 }
+function connectGmailOAuth(){
+  if(!serverOnline){showToast('Server offline — try again after it reconnects','error');return;}
+  location.href=API+'/api/oauth/google/start';
+}
 function providerIcon(provider){
-  if(provider==='gmail')return'<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6C22 4.9 21.1 4 20 4Z" fill="#EA4335"/><path d="M20 4L12 13L4 4" stroke="#fff" stroke-width="2"/></svg>';
+  if(provider==='gmail'||provider==='gmail-oauth')return'<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6C22 4.9 21.1 4 20 4Z" fill="#EA4335"/><path d="M20 4L12 13L4 4" stroke="#fff" stroke-width="2"/></svg>';
   if(provider==='icloud')return'<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M17 18H7A5 5 0 1 1 7.1 8H7A7 7 0 1 0 17 18Z" fill="#5b9ee6"/></svg>';
   return'<i class="ti ti-mail" style="font-size:18px;color:var(--txt2);"></i>';
 }
-function providerLabel(provider){return provider==='gmail'?'Gmail':provider==='icloud'?'iCloud Mail':provider==='outlook'?'Outlook':'Custom IMAP';}
+function providerLabel(provider){return provider==='gmail-oauth'?'Gmail via Google':provider==='gmail'?'Gmail app password':provider==='icloud'?'iCloud Mail':provider==='outlook'?'Outlook':'Custom IMAP';}
 // Per-account last-synced/health lives in localStorage, keyed by email — kept
 // separate from `imapAccounts` (which is refetched wholesale from the server
 // on every load, so anything stored directly on those objects would be lost).
@@ -2560,14 +2582,12 @@ function restoreBackup(evt){
   reader.readAsText(file);
 }
 function archiveOldDelivered(){
-  const cutoff=new Date();cutoff.setDate(cutoff.getDate()-60);
-  let n=0;
-  orders.forEach(o=>{
-    if(!o.archived&&o.status==='delivered'&&o.date&&new Date(o.date+'T00:00:00')<cutoff){o.archived=true;n++;}
-  });
-  if(!n){showToast('No delivered orders older than 60 days','warn');return;}
+  const before=orders.length;
+  pruneDeliveredOrders();
+  const n=before-orders.length;
+  if(!n){showToast('No delivered orders older than 4 days','warn');return;}
   save();safeRun(rOrders);safeRun(rStats);
-  showToast(n+' order'+(n>1?'s':'')+' archived');
+  showToast(n+' delivered order'+(n>1?'s':'')+' deleted');
 }
 
 // ── SERVER ────────────────────────────────────────────────────────
@@ -2949,6 +2969,13 @@ function guardLocalCacheOwnership(){
 async function initAppAfterLogin(){
   guardLocalCacheOwnership();
   sanitizeOrders(); // clean any bad price values from older imports so rendering can't crash
+  const params=new URLSearchParams(location.search);
+  const gmailStatus=params.get('gmail');
+  if(gmailStatus){
+    history.replaceState(null,'',location.pathname);
+    if(gmailStatus==='connected')setTimeout(()=>showToast('Gmail connected with Google'),500);
+    if(gmailStatus==='error')setTimeout(()=>showToast('Gmail connection failed: '+(params.get('msg')||'try again'),'error',7000),500);
+  }
   // One-time migration: browsers that saved a custom accent before the Iris
   // theme shipped would otherwise stay stuck on the old blue forever. Same
   // deal for the 2026-07-04 Aurora revamp — anyone who'd saved the old flat

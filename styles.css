@@ -247,8 +247,8 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .chip.red.on{background:var(--red-d);color:var(--red);border-color:rgba(255,95,87,.35);}
 .chip.blue.on{background:var(--blue-d);color:var(--blue);border-color:rgba(110,179,247,.35);}
 
-/* ORDERS GRID — 2 cols on desktop */
-.orders-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:14px;align-content:start;}
+/* ORDERS GRID — compact cards with only the core order info visible */
+.orders-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;align-content:start;}
 .insight-mini{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--brd);border-radius:6px;transition:background .15s ease,transform .2s var(--ease-pop);}
 .insight-mini:hover{background:rgba(255,255,255,0.04);transform:translateX(3px);}
 .insight-mini:last-child{border-bottom:none;padding-bottom:0;}
@@ -267,8 +267,10 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
    an at-a-glance/gauge/activity side column. Matches the user's mockup. */
 .wave-emoji{-webkit-text-fill-color:initial;}
 .dash-grid2{display:grid;grid-template-columns:1fr 340px;gap:14px;align-items:start;}
+#pane-dashboard .dash-grid2{grid-template-columns:1fr;}
 .dash-main2{min-width:0;display:flex;flex-direction:column;gap:14px;}
 .dash-side2{display:flex;flex-direction:column;gap:14px;position:sticky;top:0;}
+#pane-dashboard .dash-side2{display:none;}
 .dash-stat-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;}
 .dtile{background:linear-gradient(160deg,var(--bg3),var(--bg2));border:1px solid var(--brd);border-radius:16px;padding:16px 14px 14px;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;transition:transform .2s var(--ease-pop),border-color .15s ease,box-shadow .2s ease;}
 .dtile:hover{transform:translateY(-4px);border-color:var(--brd2);box-shadow:var(--glow-card);}
@@ -380,6 +382,7 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .oact-btn:hover{color:var(--txt);border-color:var(--brd2);}
 .oact-btn.danger:hover{color:var(--red);border-color:rgba(255,95,87,.3);}
 .oact-btn.track{background:var(--amber-d);border-color:rgba(255,184,48,.3);color:var(--amber);}
+.order-age{font-size:11px;color:var(--txt3);font-weight:700;padding:3px 0;}
 .track-link{background:var(--blue-d);border:1px solid rgba(110,179,247,.3);border-radius:10px;padding:3px 10px;font-size:11px;font-weight:600;color:var(--blue);text-decoration:none;display:flex;align-items:center;gap:4px;transition:transform .2s var(--ease-pop),box-shadow .2s ease,filter .15s ease;}
 .track-link:hover{transform:translateY(-2px) scale(1.04);box-shadow:0 6px 14px rgba(0,0,0,0.35);filter:brightness(1.15);}
 .track-link.c-ups{background:var(--amber-d);border-color:rgba(255,184,48,.3);color:var(--amber);}
@@ -700,6 +703,10 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .sbtn.on{background:var(--green-d);color:var(--green);border-color:rgba(61,214,140,.3);}
 .imap-form{background:var(--bg3);border:1px solid var(--brd);border-radius:6px;padding:14px;margin:-2px 0 8px;}
 .imap-form h5{font-size:12px;font-weight:700;color:var(--txt2);margin-bottom:10px;}
+.google-connect-btn{width:100%;height:38px;border-radius:10px;border:1px solid var(--brd2);background:var(--bg2);color:var(--txt);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;margin-bottom:10px;transition:transform .2s var(--ease-pop),border-color .15s ease,box-shadow .2s ease;}
+.google-connect-btn:hover{border-color:rgba(110,179,247,.45);transform:translateY(-2px);box-shadow:0 8px 18px rgba(0,0,0,.28);}
+.oauth-divider{display:flex;align-items:center;gap:10px;margin:2px 0 10px;color:var(--txt3);font-size:10.5px;font-weight:700;text-transform:uppercase;}
+.oauth-divider::before,.oauth-divider::after{content:'';height:1px;background:var(--brd);flex:1;}
 .if2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
 .ifg label{font-size:11px;color:var(--txt3);display:block;margin-bottom:3px;font-weight:600;}
 .ifg input{width:100%;background:var(--bg2);border:1px solid var(--brd2);border-radius:10px;padding:7px 9px;color:var(--txt);font-size:12px;font-weight:500;outline:none;}

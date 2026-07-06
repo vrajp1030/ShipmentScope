@@ -592,6 +592,8 @@
           <div id="imap-fw" style="display:none;">
             <div class="imap-form">
               <h5><i class="ti ti-lock" style="font-size:13px;"></i> Add an email account</h5>
+              <button class="google-connect-btn" onclick="connectGmailOAuth()" type="button"><i class="ti ti-brand-google"></i> Connect Gmail with Google</button>
+              <div class="oauth-divider"><span>or use an app password</span></div>
               <div class="ifg"><label>Provider</label>
                 <select id="im-provider" onchange="applyProviderPreset()">
                   <option value="icloud">iCloud Mail</option>
@@ -631,7 +633,7 @@
         <div class="sync-col">
           <div class="scan-box">
             <div class="scan-box-h"><i class="ti ti-wand"></i><h4>Scan inbox for orders</h4></div>
-            <p id="scan-p">Connect an account then scan. Finds order, shipping, delivery, cancellation and refund emails from any store — food, restaurant and grocery receipts are skipped automatically. Scan window and poll interval are configurable in Settings.</p>
+            <p id="scan-p">Connect an account then scan. ShipmentScope imports merchandise orders and package updates only; food, grocery, travel, ticket, subscription and service receipts are skipped automatically. Scan window and poll interval are configurable in Settings.</p>
             <div class="scan-meta" id="scan-meta"></div>
             <button class="scan-run" id="scan-btn" onclick="runScan()" disabled>Scan inbox</button>
             <div id="det-zone"></div>
@@ -821,8 +823,8 @@
           <input type="file" id="restore-file" accept="application/json" style="display:none;" onchange="restoreBackup(event)"/>
         </div>
         <div class="sm-row">
-          <div class="sm-row-info"><h4>Archive delivered orders</h4><p>Hide delivered orders older than 60 days from the main view</p></div>
-          <button class="sm-btn" onclick="archiveOldDelivered()"><i class="ti ti-archive" style="font-size:13px;"></i> Archive now</button>
+          <div class="sm-row-info"><h4>Clean delivered orders</h4><p>Delivered orders are automatically deleted after 4 days</p></div>
+          <button class="sm-btn" onclick="archiveOldDelivered()"><i class="ti ti-trash" style="font-size:13px;"></i> Clean now</button>
         </div>
         <div class="sm-row">
           <div class="sm-row-info"><h4>Order count</h4><p>Total orders saved to your account</p></div>

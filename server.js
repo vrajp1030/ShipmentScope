@@ -59,6 +59,7 @@ const EXCLUDED_FOOD_DOMAINS = [
   'doordash.com','ubereats.com','uber.com','grubhub.com','seamless.com','postmates.com',
   'instacart.com','gopuff.com','favor.com','trycaviar.com','slicelife.com','deliveroo.com',
   'skipthedishes.com','toasttab.com','olo.com','chownow.com','ezcater.com','ritual.co',
+  'eatstreet.com','waitrapp.com','delivery.com','foodpanda.com','just-eat.com','menulog.com',
   // restaurants & fast food
   'mcdonalds.com','chipotle.com','dominos.com','pizzahut.com','papajohns.com','littlecaesars.com',
   'wendys.com','tacobell.com','burgerking.com','kfc.com','chick-fil-a.com','cfahome.com',
@@ -66,20 +67,55 @@ const EXCLUDED_FOOD_DOMAINS = [
   'fiveguys.com','shakeshack.com','raisingcanes.com','popeyes.com','sonicdrivein.com',
   'jimmyjohns.com','jerseymikes.com','zaxbys.com','whataburger.com','culvers.com',
   'dairyqueen.com','buffalowildwings.com','applebees.com','olivegarden.com','ihop.com','dennys.com',
+  'pandaexpress.com','qdoba.com','moes.com','nandos.com','pret.com','jersey-mikes.com',
   // groceries & meal kits
   'kroger.com','safeway.com','albertsons.com','publix.com','wegmans.com','heb.com','aldi.us',
   'shipt.com','freshdirect.com','hellofresh.com','blueapron.com','homechef.com','factor75.com',
+  'wholefoodsmarket.com','wholefoods.com','traderjoes.com','sprouts.com','meijer.com',
 ];
 const FOOD_SUBJECT_HINTS = [
   'your dasher','your driver is','your shopper','your courier','is being prepared',
   'enjoy your meal','your meal','your food','order is ready for pickup','your table',
-  'meal kit','your groceries','grocery order','restaurant order',
+  'meal kit','your groceries','grocery order','restaurant order','pizza order',
+  'pickup order is ready','ready for pickup at','your delivery from',
 ];
 function isFoodEmail(subject, fromAddr) {
   const f = (fromAddr||'').toLowerCase();
   if (EXCLUDED_FOOD_DOMAINS.some(d => f.includes(d))) return true;
   const s = (subject||'').toLowerCase();
   return FOOD_SUBJECT_HINTS.some(k => s.includes(k));
+}
+
+const NON_MERCH_DOMAINS = [
+  'airbnb.com','vrbo.com','booking.com','hotels.com','expedia.com','priceline.com','kayak.com',
+  'delta.com','united.com','aa.com','southwest.com','jetblue.com','spirit.com',
+  'lyftmail.com','lyft.com','uber.com','ticketmaster.com','eventbrite.com','stubhub.com',
+  'fandango.com','amctheatres.com','regmovies.com','netflix.com','hulu.com','spotify.com',
+  'discord.com','zoom.us','dropbox.com','notion.so','github.com',
+];
+const NON_MERCH_HINTS = [
+  'reservation confirmed','booking confirmed','flight confirmation','boarding pass','hotel booking',
+  'your trip','your ride','ride receipt','your ticket','event ticket','appointment confirmed',
+  'subscription renewed','subscription receipt','monthly invoice','your bill is ready','statement is ready',
+  'utility bill','membership renewed','plan renewal','service appointment','parking receipt',
+];
+const MERCHANDISE_HINTS = [
+  'tracking number','tracking id','carrier','package','shipment','has shipped','is on the way',
+  'out for delivery','delivered to your','left at door','order total','grand total',
+  'order number','order #','sku','item','items','product','products','quantity','qty',
+  'ship to','shipping address','pre-order','preorder','purchase confirmed',
+];
+function hasMerchandiseSignal(subject, fromAddr, body) {
+  const text = ((subject||'')+' '+(body||'')).toLowerCase();
+  if(getAllowedStore(fromAddr, body)) return true;
+  if(MERCHANDISE_HINTS.some(k => text.includes(k))) return true;
+  return /\b(?:ups|usps|fedex|dhl)\b/.test(text) || /\b1z[a-z0-9]{16}\b/i.test(text) || /\b9[2-4]\d{20}\b/.test(text);
+}
+function isNonMerchandiseEmail(subject, fromAddr, body) {
+  const f = (fromAddr||'').toLowerCase();
+  if(NON_MERCH_DOMAINS.some(d => f.includes(d))) return true;
+  const text = ((subject||'')+' '+(body||'')).toLowerCase();
+  return NON_MERCH_HINTS.some(k => text.includes(k));
 }
 
 const KEYWORDS = {
@@ -248,8 +284,10 @@ function extractProductImage(html) {
 // Both the live sync loop AND the test harness call this, so tests reflect reality.
 function classifyEmail(subject, fromAddr, body) {
   if(isFoodEmail(subject, fromAddr)) return null; // meals/groceries aren't merchandise
+  if(isNonMerchandiseEmail(subject, fromAddr, body)) return null; // travel, tickets, subscriptions, services
   const status = detectStatus(subject, body);
   if(!status) return null;
+  if(!hasMerchandiseSignal(subject, fromAddr, body)) return null;
   const store    = getStoreName(fromAddr, body);
   const price    = extractPrice(subject, body);
   const orderNum = extractOrderNum(subject, body);
@@ -516,12 +554,41 @@ function getSessionUserId(req){
 
 // ── Per-user order storage ──
 function ordersFileFor(userId){ return path.join(ORDERS_DIR, userId+'.json'); }
+const DELIVERED_RETENTION_DAYS = 4;
+function deliveredDateForOrder(o){
+  const hist = Array.isArray(o?.history) ? o.history : [];
+  for(let i=hist.length-1;i>=0;i--){
+    if(hist[i]?.status==='delivered' && hist[i].date) return hist[i].date;
+  }
+  return o?.status==='delivered' ? o.date : null;
+}
+function shouldAutoDeleteDelivered(o){
+  const deliveredAt = deliveredDateForOrder(o);
+  if(!deliveredAt) return false;
+  const d = new Date(deliveredAt+'T00:00:00');
+  if(isNaN(d.getTime())) return false;
+  const cutoff = new Date();
+  cutoff.setHours(0,0,0,0);
+  cutoff.setDate(cutoff.getDate()-DELIVERED_RETENTION_DAYS);
+  return d <= cutoff;
+}
+function pruneDeliveredOrders(orders){
+  return (orders||[]).filter(o=>!shouldAutoDeleteDelivered(o));
+}
 function loadOrdersFor(userId){
-  try{ const f=ordersFileFor(userId); if(fs.existsSync(f)) return JSON.parse(fs.readFileSync(f,'utf8'))||[]; }catch(_){}
+  try{
+    const f=ordersFileFor(userId);
+    if(fs.existsSync(f)){
+      const raw=JSON.parse(fs.readFileSync(f,'utf8'))||[];
+      const pruned=pruneDeliveredOrders(raw);
+      if(pruned.length!==raw.length) saveOrdersFor(userId, pruned);
+      return pruned;
+    }
+  }catch(_){}
   return [];
 }
 function saveOrdersFor(userId, orders){
-  try{ fs.writeFileSync(ordersFileFor(userId), JSON.stringify(orders,null,2)); return true; }
+  try{ fs.writeFileSync(ordersFileFor(userId), JSON.stringify(pruneDeliveredOrders(orders),null,2)); return true; }
   catch(e){ console.log('Could not save orders for user:', e.message); return false; }
 }
 
@@ -541,13 +608,24 @@ function accountsFileFor(userId){ return path.join(ACCOUNTS_DIR, userId+'.json')
 function loadAccountsFor(userId){
   try{
     const f=accountsFileFor(userId);
-    if(fs.existsSync(f)) return (JSON.parse(fs.readFileSync(f,'utf8'))||[]).map(a=>({...a, password: decrypt(a.password)}));
+    if(fs.existsSync(f)) return (JSON.parse(fs.readFileSync(f,'utf8'))||[]).map(a=>({
+      ...a,
+      password: a.password ? decrypt(a.password) : '',
+      oauthRefreshToken: a.oauthRefreshToken ? decrypt(a.oauthRefreshToken) : '',
+    }));
   }catch(_){}
   return [];
 }
 function saveAccountsFor(userId, accounts){
-  const enc = accounts.map(a=>({...a, password: encrypt(a.password)}));
+  const enc = accounts.map(a=>({
+    ...a,
+    password: a.password ? encrypt(a.password) : '',
+    oauthRefreshToken: a.oauthRefreshToken ? encrypt(a.oauthRefreshToken) : '',
+  }));
   fs.writeFileSync(accountsFileFor(userId), JSON.stringify(enc,null,2));
+}
+function publicAccount(a){
+  return {email:a.email, provider:a.provider||'custom', host:a.host||'', port:a.port||'993'};
 }
 function loadAllAccountsWithOwners(){
   // Used by the auto-poll loop — every user's accounts, tagged with who owns them.
@@ -593,11 +671,73 @@ function pushToUserBuffer(userId, found){
   if(buf.length>50) newOrdersBuffers[userId] = buf.slice(-50);
 }
 
+const googleOAuthStates = new Map(); // state -> {userId, expires}
+function requestOrigin(req){
+  const proto = req.headers['x-forwarded-proto'] || (isSecureRequest(req) ? 'https' : 'http');
+  return proto+'://'+req.headers.host;
+}
+function googleRedirectUri(req){
+  return process.env.GOOGLE_REDIRECT_URI || (requestOrigin(req)+'/api/oauth/google/callback');
+}
+function googleOAuthConfigured(){
+  return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+}
+function googleOAuthSetupMessage(req){
+  return 'Google sign-in for Gmail is not configured yet. Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and this redirect URI to .env: '+googleRedirectUri(req);
+}
+async function exchangeGoogleCode(code, req){
+  const params = new URLSearchParams({
+    code,
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    redirect_uri: googleRedirectUri(req),
+    grant_type: 'authorization_code',
+  });
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:params.toString(),
+  });
+  const data = await r.json();
+  if(!r.ok) throw new Error(data.error_description || data.error || 'Google token exchange failed');
+  return data;
+}
+async function refreshGoogleAccessToken(refreshToken){
+  if(!refreshToken) throw new Error('Missing Google refresh token');
+  const params = new URLSearchParams({
+    refresh_token: refreshToken,
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    grant_type: 'refresh_token',
+  });
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:params.toString(),
+  });
+  const data = await r.json();
+  if(!r.ok) throw new Error(data.error_description || data.error || 'Google token refresh failed');
+  return data.access_token;
+}
+async function fetchGoogleEmail(accessToken){
+  const r = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {headers:{Authorization:'Bearer '+accessToken}});
+  const data = await r.json();
+  if(!r.ok || !data.email) throw new Error(data.error?.message || 'Could not read Gmail account email');
+  return data.email;
+}
+
 async function syncImap(config, sinceDate, scanDays) {
   const { host, port, email, password } = config;
+  const auth = { user: email };
+  if(config.provider==='gmail-oauth' || config.oauthRefreshToken){
+    if(!googleOAuthConfigured()) throw new Error('Gmail OAuth is not configured on this server');
+    auth.accessToken = await refreshGoogleAccessToken(config.oauthRefreshToken);
+  }else{
+    auth.pass = password;
+  }
   const client = new ImapFlow({
     host, port: parseInt(port)||993, secure: true,
-    auth: { user: email, pass: password },
+    auth,
     logger: false,
   });
 
@@ -1312,6 +1452,55 @@ li{margin-bottom:6px;}
   const userId=getSessionUserId(req);
   if(!userId){sendJSON(res,{ok:false,message:'Not logged in'},401);return;}
 
+  if(req.method==='GET'&&req.url==='/api/oauth/google/start'){
+    if(!googleOAuthConfigured()){
+      res.writeHead(503, {'Content-Type':'text/plain; charset=utf-8'});
+      res.end(googleOAuthSetupMessage(req));
+      return;
+    }
+    const state=crypto.randomBytes(18).toString('hex');
+    googleOAuthStates.set(state,{userId,expires:Date.now()+10*60*1000});
+    const params=new URLSearchParams({
+      client_id:process.env.GOOGLE_CLIENT_ID,
+      redirect_uri:googleRedirectUri(req),
+      response_type:'code',
+      scope:'https://mail.google.com/ https://www.googleapis.com/auth/userinfo.email',
+      access_type:'offline',
+      prompt:'consent',
+      include_granted_scopes:'true',
+      state,
+    });
+    res.writeHead(302,{Location:'https://accounts.google.com/o/oauth2/v2/auth?'+params.toString()});
+    res.end();
+    return;
+  }
+
+  if(req.method==='GET'&&req.url.startsWith('/api/oauth/google/callback')){
+    try{
+      const u=new URL(req.url, requestOrigin(req));
+      const state=u.searchParams.get('state')||'';
+      const stateData=googleOAuthStates.get(state);
+      googleOAuthStates.delete(state);
+      if(!stateData || stateData.expires<Date.now() || stateData.userId!==userId) throw new Error('Google connection expired. Please try again.');
+      const code=u.searchParams.get('code');
+      const oauthError=u.searchParams.get('error');
+      if(oauthError) throw new Error(oauthError);
+      if(!code) throw new Error('Missing Google authorization code');
+      const tokens=await exchangeGoogleCode(code, req);
+      if(!tokens.refresh_token) throw new Error('Google did not return a refresh token. Try connecting again and approve offline access.');
+      const email=await fetchGoogleEmail(tokens.access_token);
+      const accounts=loadAccountsFor(userId).filter(a=>a.email.toLowerCase()!==email.toLowerCase());
+      accounts.push({email,provider:'gmail-oauth',host:'imap.gmail.com',port:'993',password:'',oauthRefreshToken:tokens.refresh_token});
+      saveAccountsFor(userId,accounts);
+      res.writeHead(302,{Location:'/?gmail=connected'});
+      res.end();
+    }catch(e){
+      res.writeHead(302,{Location:'/?gmail=error&msg='+encodeURIComponent(e.message)});
+      res.end();
+    }
+    return;
+  }
+
   // Test an IMAP connection (does not save anything)
   if(req.method==='POST'&&req.url==='/api/test'){
     try{
@@ -1326,9 +1515,15 @@ li{margin-bottom:6px;}
   // Full sync — also (re)saves this account for the signed-in user's auto-poll
   if(req.method==='POST'&&req.url==='/api/sync'){
     try{
-      const cfg=JSON.parse(await readBody(req));
-      const accounts=loadAccountsFor(userId).filter(a=>a.email.toLowerCase()!==cfg.email.toLowerCase());
-      accounts.push({email:cfg.email,password:cfg.password,host:cfg.host,port:cfg.port,provider:cfg.provider||'custom'});
+      const incoming=JSON.parse(await readBody(req));
+      const savedAccounts=loadAccountsFor(userId);
+      const saved=savedAccounts.find(a=>a.email.toLowerCase()===String(incoming.email||'').toLowerCase());
+      const cfg={...(saved||{}),...incoming};
+      if(saved && saved.password && !incoming.password) cfg.password=saved.password;
+      if(saved && saved.oauthRefreshToken && !incoming.oauthRefreshToken) cfg.oauthRefreshToken=saved.oauthRefreshToken;
+      if(!cfg.email) throw new Error('Missing email account');
+      const accounts=savedAccounts.filter(a=>a.email.toLowerCase()!==cfg.email.toLowerCase());
+      accounts.push({email:cfg.email,password:cfg.password||'',oauthRefreshToken:cfg.oauthRefreshToken||'',host:cfg.host,port:cfg.port,provider:cfg.provider||'custom'});
       saveAccountsFor(userId, accounts);
       console.log(`\nSyncing ${cfg.email}... (scanning last ${cfg.scanDays||30} days)`);
       const orders=await syncImap(cfg, null, cfg.scanDays);
@@ -1350,7 +1545,7 @@ li{margin-bottom:6px;}
   // List / add / remove this user's connected IMAP accounts (server-side
   // source of truth now, so accounts follow the user across devices/browsers).
   if(req.method==='GET'&&req.url==='/api/accounts'){
-    sendJSON(res,{ok:true,accounts:loadAccountsFor(userId)});
+    sendJSON(res,{ok:true,accounts:loadAccountsFor(userId).map(publicAccount)});
     return;
   }
   if(req.method==='POST'&&req.url==='/api/accounts'){

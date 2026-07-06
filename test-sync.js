@@ -186,6 +186,26 @@ const CASES = [
     body:'u/trainer replied: nice pull on that Charizard! Reply or view thread.',
     shouldKeep:false }, // social, not an order
 
+  { from:'DoorDash <no-reply@doordash.com>',
+    subject:'Your DoorDash order has been delivered',
+    body:'Your order from Taco Bell was delivered. Total: $18.42.',
+    shouldKeep:false },
+
+  { from:'Instacart <orders@instacart.com>',
+    subject:'Your grocery order receipt',
+    body:'Your shopper delivered your groceries. Order total: $74.13.',
+    shouldKeep:false },
+
+  { from:'Delta Air Lines <receipts@delta.com>',
+    subject:'Your trip receipt and confirmation',
+    body:'Flight confirmation. Your trip is booked. Total paid: $311.20.',
+    shouldKeep:false },
+
+  { from:'Spotify <no-reply@spotify.com>',
+    subject:'Your receipt from Spotify',
+    body:'Your subscription renewed. Total: $10.99.',
+    shouldKeep:false },
+
   // ---- Regression: "tracking number" in an ORDER CONFIRMATION must not read as shipped ----
   // The confirmation only promises a tracking number will follow; there's no ship verb,
   // so this must classify as 'ordered', not 'shipped' (weak-signal guard in detectStatus).
