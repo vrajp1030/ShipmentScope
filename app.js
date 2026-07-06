@@ -1785,6 +1785,7 @@ function impD(i){
   if(btn){btn.textContent='✓';btn.style.opacity='.5';btn.disabled=true;}
   rOrders();rStats();
   if(settings['new-order'])showToast(r==='updated'?'Order updated: '+(d.name||'').slice(0,30):'Order imported: '+(d.name||'').slice(0,30));
+  notifyDiscordOrders([d]);
 }
 function importAll(){
   if(!window._det)return;
@@ -1793,6 +1794,7 @@ function importAll(){
   save();rOrders();rStats();
   showToast(''+added+' added'+(updated?', '+updated+' updated':''));
   $('det-zone').innerHTML='<div style="color:var(--green);font-size:13px;font-weight:700;padding:14px 0;">✓ '+added+' added'+(updated?', '+updated+' updated':'')+'! Go to Orders tab.</div>';
+  notifyDiscordOrders(window._det);
 }
 
 // ── INSIGHTS ─────────────────────────────────────────────────────
@@ -2489,6 +2491,11 @@ function openSettings(){
   $('default-sort').value=localStorage.getItem('ss_defaultSort')||'date-desc';
   $('poll-interval').value=localStorage.getItem('ss_pollInterval')||'5';
   $('scan-days').value=localStorage.getItem('ss_scanDays')||'30';
+  // Beta trial + referral + Discord
+  if($('sm-discord-webhook'))$('sm-discord-webhook').value=getDiscordWebhook();
+  if($('sm-trial-info'))$('sm-trial-info').textContent=!trialState?'—':trialState.daysLeft==null?'Unlimited access (founder account)':trialState.expired?'Trial ended — invite friends to earn more days':trialState.daysLeft+' day'+(trialState.daysLeft===1?'':'s')+' left in your 10-week beta trial';
+  if($('sm-referral-code'))$('sm-referral-code').textContent=(trialState&&trialState.referralCode)||'—';
+  if($('sm-referral-info')&&trialState)$('sm-referral-info').textContent='Referrals so far: '+trialState.referralCount+'. Every '+trialState.perBonus+' sign-ups earns you +'+trialState.bonusDays+' days, and each friend gets +'+trialState.bonusDays+' bonus days.';
   $('settings-overlay').classList.add('open');
 }
 function closeSettings(){
@@ -2686,6 +2693,7 @@ async function pollNewOrders(){
         if(settings['new-order'])showToast(''+count+' new order'+(count>1?'s':'')+' arrived!');
         const note=notificationCopyForOrders(applied);
         if(note[0]!=='Order cancelled'||settings['cancel'])notifyDesktop(note[0],note[1]);
+        notifyDiscordOrders(applied);
       }
     }
   }catch(_){}
@@ -2884,6 +2892,7 @@ function setAuthMode(mode){
   $('auth-submit-btn').textContent=mode==='login'?'Log in':'Create account';
   $('auth-hint').style.display=mode==='signup'?'block':'none';
   $('auth-consent-row').style.display=mode==='signup'?'flex':'none';
+  if($('auth-beta-row'))$('auth-beta-row').style.display=mode==='signup'?'block':'none';
   if($('auth-consent'))$('auth-consent').checked=false; // re-consent each time signup is opened
   $('auth-error').style.display='none';
   renderSignupPasswordRules();
@@ -2899,17 +2908,20 @@ async function submitAuth(){
   if(!email||!password){errEl.textContent='Enter your email and password.';errEl.style.display='block';return;}
   if(authMode==='signup'&&!signupPasswordValid(password,email)){renderSignupPasswordRules(true);errEl.textContent='Password does not meet the security requirements yet.';errEl.style.display='block';return;}
   if(authMode==='signup'&&!$('auth-consent').checked){errEl.textContent='Please agree to the Terms & Privacy Policy to create an account.';errEl.style.display='block';return;}
+  const betaCode=authMode==='signup'?($('auth-beta-code')?$('auth-beta-code').value.trim():''):'';
+  if(authMode==='signup'&&!betaCode){errEl.textContent='Enter your beta access code or a referral code from a member.';errEl.style.display='block';return;}
   const btn=$('auth-submit-btn'), prevText=btn.textContent;
   btn.disabled=true; btn.innerHTML='<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;display:inline-block;"></i> '+prevText;
   try{
     const acceptedTerms=authMode==='signup'&&!!$('auth-consent').checked;
-    const res=await fetch(API+'/api/auth/'+authMode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,hp_field,acceptedTerms})});
+    const res=await fetch(API+'/api/auth/'+authMode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,hp_field,acceptedTerms,betaCode})});
     const data=await res.json();
     if(!data.ok){errEl.textContent=data.message||'Something went wrong.';errEl.style.display='block';return;}
     // New device (or new signup) → a 6-digit code was emailed; go verify it.
     if(data.needsCode){ pendingChallenge=data.challenge; showCodeStep(data.email); return; }
     // Trusted device → straight in.
     currentUserEmail=data.email;currentWebhookToken=data.webhookToken;
+    applyTrialState(data);
     showApp();
     await initAppAfterLogin();
   }catch(e){errEl.textContent='Server offline — is node server.js running?';errEl.style.display='block';
@@ -2945,6 +2957,7 @@ async function verifyCode(){
       return;
     }
     currentUserEmail=data.email;currentWebhookToken=data.webhookToken;
+    applyTrialState(data);
     pendingChallenge=null;
     showApp();
     await initAppAfterLogin();
@@ -2989,9 +3002,99 @@ async function checkAuthOnLoad(){
   try{
     const res=await fetch(API+'/api/auth/me');
     const data=await res.json();
-    if(data.ok){currentUserEmail=data.email;currentWebhookToken=data.webhookToken;showApp();initAppAfterLogin();}
+    if(data.ok){currentUserEmail=data.email;currentWebhookToken=data.webhookToken;applyTrialState(data);showApp();initAppAfterLogin();}
     else showLandingScreen();
   }catch(e){ $('offline-banner').style.display='block'; showLandingScreen(); } // server offline — show landing with a visible banner instead of jumping to auth
+}
+
+// ── BETA TRIAL + REFERRALS (client state) ─────────────────────────
+let trialState=null;
+function applyTrialState(data){
+  if(!data||data.trialDaysLeft===undefined)return;
+  trialState={daysLeft:data.trialDaysLeft,expired:!!data.trialExpired,referralCode:data.referralCode||null,referralCount:data.referralCount||0,perBonus:data.referralsPerBonus||3,bonusDays:data.referralBonusDays||10};
+  renderTrialUI();
+}
+function renderTrialUI(){
+  const pill=$('trial-pill'),lock=$('trial-lock');
+  if(!pill||!lock||!trialState)return;
+  if(trialState.expired){
+    pill.style.display='none';
+    lock.style.display='flex';
+    const codeEl=$('trial-lock-code');if(codeEl)codeEl.textContent=trialState.referralCode||'—';
+    return;
+  }
+  lock.style.display='none';
+  if(trialState.daysLeft==null){pill.style.display='none';return;} // unlimited (operator)
+  pill.style.display='flex';
+  pill.className='trial-pill'+(trialState.daysLeft<=10?' warn':'');
+  pill.innerHTML='<i class="ti ti-hourglass-high"></i> Beta: '+trialState.daysLeft+' day'+(trialState.daysLeft===1?'':'s')+' left · <b>invite friends +'+trialState.bonusDays+'d</b>';
+}
+function copyReferralCode(){
+  const code=trialState&&trialState.referralCode;
+  if(!code){showToast('No referral code yet — log in again','warn');return;}
+  const msg='Join me on ShipmentScope (Pokémon order & inventory tracker)! Use my referral code at signup for +10 bonus beta days: '+code;
+  navigator.clipboard.writeText(msg).then(()=>showToast('Referral message copied — paste it in Discord!')).catch(()=>showToast('Copy failed — your code is '+code,'warn'));
+}
+// Any data API can come back 403 {trialExpired:true} the moment the clock
+// runs out mid-session — flip to the lock screen when that happens.
+function handleTrialExpiredResponse(data){
+  if(data&&data.trialExpired){ if(trialState)trialState.expired=true; renderTrialUI(); return true; }
+  return false;
+}
+
+// ── DISCORD INTEGRATION (client) ──────────────────────────────────
+function getDiscordWebhook(){return (localStorage.getItem('ss_discordWebhook')||'').trim();}
+function saveDiscordWebhook(v){
+  const url=String(v||'').trim();
+  if(url&&!/^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//.test(url)){showToast('That does not look like a Discord webhook URL','warn');return;}
+  localStorage.setItem('ss_discordWebhook',url);
+  if(url)showToast('Discord webhook saved');
+}
+async function discordSend(payload){
+  const webhookUrl=getDiscordWebhook();
+  if(!webhookUrl)return false;
+  try{
+    const res=await fetch(API+'/api/discord/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({webhookUrl,...payload})});
+    const data=await res.json();
+    if(!data.ok&&!handleTrialExpiredResponse(data))console.warn('Discord send failed:',data.message);
+    return !!data.ok;
+  }catch(_){return false;}
+}
+async function testDiscordWebhook(){
+  saveDiscordWebhook($('sm-discord-webhook').value);
+  if(!getDiscordWebhook()){showToast('Paste your Discord webhook URL first','warn');return;}
+  const ok=await discordSend({content:'✅ ShipmentScope is connected! Order alerts will show up here.'});
+  if(ok)showToast('Test message sent — check your Discord!');
+  else showToast('Could not reach that webhook','warn');
+}
+// Ping the user's Discord channel about imported/updated orders (fire-and-forget).
+const DISCORD_STATUS_EMOJI={ordered:'🛍️',preorder:'⭐',shipped:'🚚',delivered:'✅',cancelled:'❌'};
+function notifyDiscordOrders(list){
+  if(!getDiscordWebhook()||!list||!list.length)return;
+  const lines=list.slice(0,8).map(o=>(DISCORD_STATUS_EMOJI[o.status]||'📦')+' **'+String(o.name||'Order').slice(0,60).replace(/\*/g,'')+'** — '+(SL[o.status]||o.status)+(o.store?' · '+o.store:'')+(o.price?' · $'+money(o.price):''));
+  if(list.length>8)lines.push('…and '+(list.length-8)+' more');
+  discordSend({content:'📬 ShipmentScope update:\n'+lines.join('\n')});
+}
+async function shareCardToDiscord(){
+  if(!getDiscordWebhook()){showToast('Add your Discord webhook in Settings → Discord first','warn');openSettings();return;}
+  const canvas=$('card-canvas');if(!canvas)return;
+  const btn=$('card-discord-btn'),prev=btn.innerHTML;
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;display:inline-block;"></i> Sharing…';
+  const ok=await discordSend({imageDataUrl:canvas.toDataURL('image/png'),filename:'shipmentscope-card.png',content:'My ShipmentScope collector card 📦✨'});
+  btn.disabled=false;btn.innerHTML=prev;
+  if(ok)showToast('Card posted to your Discord!');
+  else showToast('Could not post — check your webhook in Settings','warn');
+}
+async function sendFeedback(){
+  const box=$('sm-feedback');
+  const msg=(box.value||'').trim();
+  if(!msg){showToast('Write a short description first','warn');return;}
+  try{
+    const res=await fetch(API+'/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    const data=await res.json();
+    if(data.ok){box.value='';showToast('Thanks! Feedback sent to the developer 🙌');}
+    else if(!handleTrialExpiredResponse(data))showToast(data.message||'Could not send feedback','warn');
+  }catch(_){showToast('Server offline — try again later','warn');}
 }
 
 // Accounts now live server-side (scoped to the logged-in user). If this

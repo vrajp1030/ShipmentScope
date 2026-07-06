@@ -43,6 +43,19 @@ body{background:var(--bg);color:var(--txt);font-family:'Inter',-apple-system,san
 .empty{text-align:center;padding:80px 20px;color:var(--txt3);}
 .empty i{font-size:36px;display:block;margin-bottom:10px;}
 .err{background:rgba(242,102,94,.13);border:1px solid rgba(242,102,94,.3);color:var(--red);border-radius:6px;padding:14px 16px;font-size:13px;font-weight:500;}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--brd);border-radius:12px;overflow:hidden;font-size:12.5px;}
+th{background:var(--bg3);text-align:left;padding:10px 12px;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3);}
+td{padding:10px 12px;border-top:1px solid var(--brd);color:var(--txt2);font-variant-numeric:tabular-nums;}
+td.num{text-align:right;}th.num{text-align:right;}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;}
+.pill.ok{background:rgba(79,191,139,.15);color:var(--green);}
+.pill.warn{background:rgba(224,167,66,.15);color:var(--amber);}
+.pill.bad{background:rgba(242,102,94,.15);color:var(--red);}
+.pill.inf{background:rgba(156,140,236,.15);color:var(--purple);}
+.fb{background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:12px 14px;margin-bottom:8px;}
+.fb .who{font-size:11px;color:var(--txt3);margin-bottom:4px;}
+.fb .msg{font-size:13px;color:var(--txt2);white-space:pre-wrap;}
+.tbl-scroll{overflow-x:auto;}
 </style>
 </head>
 <body>
@@ -51,7 +64,7 @@ body{background:var(--bg);color:var(--txt);font-family:'Inter',-apple-system,san
     <img src="/assets/logo.png" width="26" height="26" alt="ShipmentScope" style="border-radius:22%;display:block;"/>
     <div class="hdr-title">Shipment<span class="accent">Scope</span> — Developer Stats</div>
   </div>
-  <div class="sub">Real usage across every account on this install. No per-user data shown — aggregates only.</div>
+  <div class="sub">Real usage across every account on this install — operator view.</div>
   <div id="content"><div class="empty"><i class="ti ti-loader-2"></i><p>Loading…</p></div></div>
 </div>
 <script>
@@ -63,22 +76,32 @@ async function load(){
     if(!data.ok){el.innerHTML='<div class="err">'+(data.message||'Could not load stats.')+'</div>';return;}
     const s=data.stats;
     if(!s.totalUsers){el.innerHTML='<div class="empty"><i class="ti ti-chart-bar"></i><p>No accounts yet — stats will appear once people sign up.</p></div>';return;}
+    const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const fdate=t=>t?new Date(t).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
+    const trialPill=d=>d==null?'<span class="pill inf">∞ unlimited</span>':d<=0?'<span class="pill bad">expired</span>':d<=10?'<span class="pill warn">'+d+'d left</span>':'<span class="pill ok">'+d+'d left</span>';
     el.innerHTML=
       '<div class="tiles">'+
-        '<div class="tile accent"><div class="tile-val">'+s.totalUsers.toLocaleString()+'</div><div class="tile-lbl">Total accounts</div><div class="tile-sub">'+s.signups7d+' new this week</div></div>'+
-        '<div class="tile green"><div class="tile-val">'+s.totalOrders.toLocaleString()+'</div><div class="tile-lbl">Orders tracked</div><div class="tile-sub">'+s.avgOrdersPerUser+' avg per account</div></div>'+
+        '<div class="tile accent"><div class="tile-val">'+s.totalUsers.toLocaleString()+'</div><div class="tile-lbl">Total accounts</div><div class="tile-sub">'+s.signups7d+' new this week · '+s.signups30d+' this month</div></div>'+
+        '<div class="tile green"><div class="tile-val">'+s.ordersThisMonth.toLocaleString()+'</div><div class="tile-lbl">Orders tracked this month</div><div class="tile-sub">$'+s.valueThisMonth.toLocaleString()+' this month · '+s.totalOrders.toLocaleString()+' all-time</div></div>'+
         '<div class="tile amber"><div class="tile-val">$'+s.totalValue.toLocaleString()+'</div><div class="tile-lbl">Order value tracked</div><div class="tile-sub">excludes cancelled</div></div>'+
-        '<div class="tile purple"><div class="tile-val">'+s.totalAccounts.toLocaleString()+'</div><div class="tile-lbl">Email accounts connected</div><div class="tile-sub">across all users</div></div>'+
+        '<div class="tile purple"><div class="tile-val">'+s.totalAccounts.toLocaleString()+'</div><div class="tile-lbl">Email accounts connected</div><div class="tile-sub">'+(s.totalInventoryItems||0).toLocaleString()+' inventory items tracked</div></div>'+
       '</div>'+
-      '<div class="section-lbl">Activity</div>'+
+      '<div class="section-lbl">Engagement</div>'+
       '<div class="tiles">'+
         '<div class="tile"><div class="tile-val">'+s.active7d.toLocaleString()+'</div><div class="tile-lbl">Active in last 7 days</div><div class="tile-sub">logged in at least once</div></div>'+
-        '<div class="tile"><div class="tile-val">'+s.signups30d.toLocaleString()+'</div><div class="tile-lbl">New accounts, last 30 days</div></div>'+
+        '<div class="tile"><div class="tile-val">'+(s.active30d||0).toLocaleString()+'</div><div class="tile-lbl">Active in last 30 days</div></div>'+
+        '<div class="tile"><div class="tile-val">'+s.avgOrdersPerUser+'</div><div class="tile-lbl">Avg orders per account</div></div>'+
       '</div>'+
+      '<div class="section-lbl">Users</div>'+
+      '<div class="tbl-scroll"><table><tr><th>Email</th><th>Joined</th><th>Last login</th><th class="num">Orders</th><th class="num">This month</th><th class="num">Spend</th><th class="num">Inventory</th><th>Trial</th><th class="num">Referrals</th></tr>'+
+        (s.perUser||[]).map(u=>'<tr><td>'+esc(u.email)+'</td><td>'+fdate(u.createdAt)+'</td><td>'+fdate(u.lastLoginAt)+'</td><td class="num">'+u.orders+'</td><td class="num">'+u.ordersThisMonth+'</td><td class="num">$'+u.spend.toLocaleString()+'</td><td class="num">'+u.inventoryItems+'</td><td>'+trialPill(u.trialDaysLeft)+'</td><td class="num">'+u.referralCount+'</td></tr>').join('')+
+      '</table></div>'+
       '<div class="section-lbl">Orders by status</div>'+
       '<div class="status-grid">'+
         Object.entries(s.statusBreakdown).map(([k,v])=>'<div class="status-tile"><div class="status-val">'+v.toLocaleString()+'</div><div class="status-lbl">'+k+'</div></div>').join('')+
-      '</div>';
+      '</div>'+
+      '<div class="section-lbl">Latest feedback</div>'+
+      ((s.feedback&&s.feedback.length)?s.feedback.map(f=>'<div class="fb"><div class="who">'+esc(f.email)+' · '+new Date(f.ts).toLocaleString()+'</div><div class="msg">'+esc(f.message)+'</div></div>').join(''):'<div class="sub">No feedback yet.</div>');
   }catch(e){
     el.innerHTML='<div class="err">Could not reach the server. Is it running?</div>';
   }

@@ -201,6 +201,7 @@
       <div class="mfg"><label>Password</label><input id="auth-password" type="password" placeholder="••••••••" autocomplete="current-password" oninput="renderSignupPasswordRules()" onkeydown="if(event.key==='Enter')submitAuth()"/></div>
       <p class="auth-hint" id="auth-hint" style="display:none;">Use a strong password. This is your own private account — nobody else can see your orders or connected email accounts.</p>
       <div class="auth-pw-rules" id="auth-pw-rules" style="display:none;" aria-live="polite"></div>
+      <div class="mfg" id="auth-beta-row" style="display:none;"><label>Beta access or referral code</label><input id="auth-beta-code" placeholder="e.g. SHIP-A1B2C3" autocomplete="off"/><p class="auth-hint" style="margin-top:6px;">ShipmentScope is in private beta — 10-week free trial. Got a friend's referral code? You'll both earn bonus days.</p></div>
       <label class="auth-consent" id="auth-consent-row" style="display:none;"><input type="checkbox" id="auth-consent"/><span>I agree to the <a href="/terms" target="_blank">Terms of Service</a> &amp; <a href="/privacy" target="_blank">Privacy Policy</a>, and understand ShipmentScope is a <strong>beta</strong> provided “as is” — bugs, downtime, and data loss can occur.</span></label>
       <button class="add-btn" style="width:100%;justify-content:center;margin-top:8px;" onclick="submitAuth()" id="auth-submit-btn">Log in</button>
     </div>
@@ -219,6 +220,24 @@
 <div class="app" style="display:none;">
   <!-- TOAST -->
   <div class="toast" id="toast"><i class="ti ti-bell-ringing" style="font-size:16px;"></i><span id="toast-msg"></span><span id="toast-action" class="toast-action" style="display:none;" onclick="runToastAction()"></span></div>
+
+  <!-- BETA TRIAL PILL — days remaining + referral CTA (hidden for unlimited accounts) -->
+  <div class="trial-pill" id="trial-pill" style="display:none;" onclick="copyReferralCode()" title="Click to copy your referral code"></div>
+
+  <!-- TRIAL EXPIRED LOCK -->
+  <div class="trial-lock" id="trial-lock" style="display:none;">
+    <div class="trial-lock-card">
+      <div class="auth-code-icon"><i class="ti ti-hourglass-empty"></i></div>
+      <h2>Your beta trial has ended</h2>
+      <p>Thanks for testing ShipmentScope! Your 10-week beta window is up. Your orders and inventory are <strong>safe and untouched</strong>.</p>
+      <p>Want more time? Invite friends with your referral code — every 3 sign-ups adds <strong>+10 days</strong>:</p>
+      <div class="trial-lock-code" id="trial-lock-code" onclick="copyReferralCode()" title="Click to copy">SHIP-······</div>
+      <div style="display:flex;gap:10px;justify-content:center;margin-top:18px;">
+        <button class="rb-btn" onclick="copyReferralCode()"><i class="ti ti-copy" style="font-size:13px;"></i> Copy code</button>
+        <button class="rb-btn" onclick="logout()"><i class="ti ti-logout" style="font-size:13px;"></i> Log out</button>
+      </div>
+    </div>
+  </div>
 
   <!-- HEADER -->
   <div class="hdr">
@@ -723,8 +742,37 @@
           <button class="sm-btn danger" onclick="logout()"><i class="ti ti-logout" style="font-size:13px;"></i> Log out</button>
         </div>
         <div class="sm-row">
+          <div class="sm-row-info"><h4>Beta trial</h4><p id="sm-trial-info">—</p></div>
+        </div>
+        <div class="sm-row">
+          <div class="sm-row-info"><h4>Your referral code</h4><p id="sm-referral-info">Invite friends — every 3 sign-ups earns you +10 days, and they get +10 bonus days too.</p></div>
+          <button class="sm-btn" id="sm-referral-btn" onclick="copyReferralCode()"><i class="ti ti-copy" style="font-size:13px;"></i> <span id="sm-referral-code">—</span></button>
+        </div>
+        <div class="sm-row">
           <div class="sm-row-info"><h4>Delete account</h4><p>Permanently erases your orders, connected email accounts, and login. Cannot be undone.</p></div>
           <button class="sm-btn danger" onclick="openDeleteAccount()"><i class="ti ti-trash" style="font-size:13px;"></i> Delete account</button>
+        </div>
+      </div>
+
+      <div class="sm-section">
+        <div class="sm-section-title"><i class="ti ti-brand-discord"></i>Discord</div>
+        <div class="sm-row">
+          <div class="sm-row-info"><h4>Order alerts webhook</h4><p>Paste a Discord webhook URL (Server Settings → Integrations → Webhooks) to get pinged when orders ship, deliver, or cancel — and to share checkout cards.</p></div>
+        </div>
+        <div class="sm-row" style="gap:8px;">
+          <input class="sm-input" id="sm-discord-webhook" placeholder="https://discord.com/api/webhooks/…" style="flex:1;min-width:0;" onchange="saveDiscordWebhook(this.value)"/>
+          <button class="sm-btn" onclick="testDiscordWebhook()"><i class="ti ti-send" style="font-size:13px;"></i> Test</button>
+        </div>
+      </div>
+
+      <div class="sm-section">
+        <div class="sm-section-title"><i class="ti ti-message-report"></i>Feedback</div>
+        <div class="sm-row">
+          <div class="sm-row-info"><h4>Found a bug or have an idea?</h4><p>Reports go straight to the developer. Include what you were doing when it happened.</p></div>
+        </div>
+        <div class="sm-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <textarea class="sm-input" id="sm-feedback" rows="3" placeholder="Describe the bug or idea…" style="resize:vertical;min-height:60px;"></textarea>
+          <button class="sm-btn" style="align-self:flex-end;" onclick="sendFeedback()"><i class="ti ti-send" style="font-size:13px;"></i> Send feedback</button>
         </div>
       </div>
 
@@ -966,7 +1014,7 @@
       </div>
       <p class="card-hint">Uses your real totals from Orders. Nothing here is sent anywhere — it renders in your browser only.</p>
     </div>
-    <div class="mftr"><button class="mc" onclick="closeCheckoutCard()">Close</button><button class="ms" onclick="downloadCheckoutCard()"><i class="ti ti-download"></i> Download PNG</button></div>
+    <div class="mftr"><button class="mc" onclick="closeCheckoutCard()">Close</button><button class="mc" onclick="shareCardToDiscord()" id="card-discord-btn"><i class="ti ti-brand-discord"></i> Share to Discord</button><button class="ms" onclick="downloadCheckoutCard()"><i class="ti ti-download"></i> Download PNG</button></div>
   </div>
 </div>
 

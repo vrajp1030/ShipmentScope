@@ -569,6 +569,20 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .footer-link{color:var(--txt3);text-decoration:underline;}
 .footer-link:hover{color:var(--txt2);}
 .footer-disclaimer{max-width:640px;margin:10px auto 0;font-size:10.5px;line-height:1.55;color:var(--txt3);opacity:.85;}
+
+/* BETA TRIAL — countdown pill (bottom-left, mirrors #srv-badge) + expired lock */
+.trial-pill{position:fixed;bottom:16px;left:16px;z-index:999;display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;font-size:11.5px;font-weight:600;color:var(--txt2);background:var(--bg3);border:1px solid var(--brd2);cursor:pointer;box-shadow:0 8px 20px -6px rgba(0,0,0,.5);transition:transform .2s var(--ease-pop),border-color .15s ease;}
+.trial-pill:hover{transform:translateY(-2px);border-color:var(--accent);}
+.trial-pill i{color:var(--accent);font-size:14px;}
+.trial-pill b{color:var(--accent-3);font-weight:700;}
+.trial-pill.warn{border-color:rgba(224,167,66,.5);}
+.trial-pill.warn i{color:var(--amber);}
+.trial-lock{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;background:rgba(6,6,19,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:20px;}
+.trial-lock-card{max-width:440px;width:100%;background:linear-gradient(160deg,var(--bg3),var(--bg2));border:1px solid var(--brd2);border-radius:20px;padding:34px 30px;text-align:center;box-shadow:var(--glow-card);}
+.trial-lock-card h2{font-family:var(--font-display);font-size:22px;margin:14px 0 10px;}
+.trial-lock-card p{font-size:13.5px;color:var(--txt2);line-height:1.6;margin-bottom:10px;}
+.trial-lock-code{font-family:var(--font-mono);font-size:22px;font-weight:800;letter-spacing:2px;background:var(--accent-d);color:var(--accent-3);border:1px dashed var(--accent);border-radius:12px;padding:12px;margin-top:8px;cursor:pointer;transition:transform .2s var(--ease-pop);}
+.trial-lock-code:hover{transform:scale(1.02);}
 .auth-consent{display:flex;align-items:flex-start;gap:8px;margin:12px 2px 2px;font-size:11.5px;line-height:1.5;color:var(--txt3);text-align:left;cursor:pointer;}
 .auth-consent input{margin-top:2px;flex-shrink:0;width:15px;height:15px;accent-color:var(--accent);cursor:pointer;}
 .auth-consent a{color:var(--txt2);}

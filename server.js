@@ -635,28 +635,48 @@ function loadAllAccountsWithOwners(){
 // ── Developer stats (aggregate only — never exposes any user's personal data) ──
 function computeAdminStats(){
   const users = loadUsers();
-  let totalOrders=0, totalValue=0, totalAccounts=0;
+  let totalOrders=0, totalValue=0, totalAccounts=0, ordersThisMonth=0, valueThisMonth=0, totalInventoryItems=0;
   const statusBreakdown = {ordered:0, shipped:0, delivered:0, cancelled:0, preorder:0};
   const now = Date.now();
-  let signups7d=0, signups30d=0, active7d=0;
+  const monthPrefix = new Date().toISOString().slice(0,7); // 'YYYY-MM'
+  let signups7d=0, signups30d=0, active7d=0, active30d=0;
+  const perUser=[];
   for(const u of users){
     const orders = loadOrdersFor(u.id);
+    const inv = loadInventoryFor(u.id);
     totalOrders += orders.length;
+    totalInventoryItems += inv.length;
+    let userSpend=0, userMonth=0;
     for(const o of orders){
-      if(o.status!=='cancelled') totalValue += (o.price||0);
+      if(o.status!=='cancelled'){ totalValue += (o.price||0); userSpend += (o.price||0); }
       if(statusBreakdown[o.status]!=null) statusBreakdown[o.status]++;
+      if((o.date||'').startsWith(monthPrefix)){ ordersThisMonth++; userMonth++; if(o.status!=='cancelled') valueThisMonth+=(o.price||0); }
     }
     totalAccounts += loadAccountsFor(u.id).length;
     const createdAt = new Date(u.createdAt).getTime();
+    const lastLogin = u.lastLoginAt ? new Date(u.lastLoginAt).getTime() : 0;
     if(now-createdAt < 7*24*60*60*1000) signups7d++;
     if(now-createdAt < 30*24*60*60*1000) signups30d++;
-    if(u.lastLoginAt && now-new Date(u.lastLoginAt).getTime() < 7*24*60*60*1000) active7d++;
+    if(lastLogin && now-lastLogin < 7*24*60*60*1000) active7d++;
+    if(lastLogin && now-lastLogin < 30*24*60*60*1000) active30d++;
+    perUser.push({
+      email:u.email, createdAt:u.createdAt, lastLoginAt:u.lastLoginAt||null,
+      orders:orders.length, ordersThisMonth:userMonth,
+      spend:Math.round(userSpend*100)/100, inventoryItems:inv.length,
+      trialDaysLeft:trialDaysLeft(u), referralCode:u.referralCode||null, referralCount:u.referralCount||0,
+    });
   }
+  perUser.sort((a,b)=>new Date(b.lastLoginAt||0)-new Date(a.lastLoginAt||0));
+  let feedback=[];
+  try{ const f=path.join(DATA_DIR,'feedback.json'); if(fs.existsSync(f)) feedback=(JSON.parse(fs.readFileSync(f,'utf8'))||[]).slice(0,20); }catch(_){}
   return {
-    totalUsers: users.length, totalOrders,
+    totalUsers: users.length, totalOrders, ordersThisMonth,
     totalValue: Math.round(totalValue*100)/100,
-    totalAccounts, statusBreakdown, signups7d, signups30d, active7d,
+    valueThisMonth: Math.round(valueThisMonth*100)/100,
+    totalInventoryItems,
+    totalAccounts, statusBreakdown, signups7d, signups30d, active7d, active30d,
     avgOrdersPerUser: users.length ? Math.round((totalOrders/users.length)*10)/10 : 0,
+    perUser, feedback,
   };
 }
 
@@ -1001,6 +1021,51 @@ function addTrustedDevice(user){
   return token;
 }
 
+// ── BETA ACCESS: invite code + 10-week trial + referrals ────────────
+// Signup requires either the operator's BETA_CODE (env) or an existing user's
+// personal referral code. Every new account gets a 70-day (10-week) trial;
+// referred signups get +10 bonus days, and the referrer earns +10 days for
+// every 3 completed referrals. Accounts with no trialEndsAt (created before
+// this shipped, i.e. the operator) are grandfathered as unlimited.
+const BETA_CODE=(process.env.BETA_CODE||'').trim();
+const TRIAL_DAYS=70, REFERRAL_BONUS_DAYS=10, REFERRALS_PER_BONUS=3;
+function makeReferralCode(users){
+  let code;
+  do{ code='SHIP-'+crypto.randomBytes(3).toString('hex').toUpperCase(); }
+  while((users||[]).some(u=>u.referralCode===code));
+  return code;
+}
+function findUserByReferralCode(code){
+  const c=String(code||'').trim().toLowerCase();
+  if(!c) return null;
+  return loadUsers().find(u=>u.referralCode && u.referralCode.toLowerCase()===c)||null;
+}
+function addDaysIso(fromIso, days){ const d=new Date(fromIso); d.setDate(d.getDate()+days); return d.toISOString(); }
+function trialDaysLeft(user){
+  if(!user.trialEndsAt) return null; // unlimited (grandfathered/operator)
+  return Math.ceil((new Date(user.trialEndsAt).getTime()-Date.now())/86400000);
+}
+function isTrialExpired(user){ const d=trialDaysLeft(user); return d!=null && d<=0; }
+// Backfill fields older accounts don't have (mutates; caller saves if it returns true).
+function ensureUserDefaults(user, users){
+  let changed=false;
+  if(!user.referralCode){ user.referralCode=makeReferralCode(users); changed=true; }
+  if(user.referralCount==null){ user.referralCount=0; changed=true; }
+  return changed;
+}
+// Public summary of trial/referral state, sent to the client after auth.
+function trialInfo(user){
+  return {
+    trialEndsAt: user.trialEndsAt||null,
+    trialDaysLeft: trialDaysLeft(user),
+    trialExpired: isTrialExpired(user),
+    referralCode: user.referralCode||null,
+    referralCount: user.referralCount||0,
+    referralsPerBonus: REFERRALS_PER_BONUS,
+    referralBonusDays: REFERRAL_BONUS_DAYS,
+  };
+}
+
 function sendJSON(res, data, status=200){
   const body = Buffer.from(JSON.stringify(data));
   const headers = {'Content-Type':'application/json', ...CORS};
@@ -1294,7 +1359,7 @@ li{margin-bottom:6px;}
   if(req.method==='POST'&&req.url==='/api/auth/signup'){
     try{
       if(isRateLimited('signup:'+clientIp(req), 5, 60*60*1000)){sendJSON(res,{ok:false,message:'Too many signup attempts from this connection. Try again later.'},429);return;}
-      const {email,password,hp_field,acceptedTerms}=JSON.parse(await readBody(req));
+      const {email,password,hp_field,acceptedTerms,betaCode}=JSON.parse(await readBody(req));
       // Honeypot: a hidden form field real users never fill in. Bots that
       // auto-fill every field trip this — pretend success without creating
       // anything, so the bot doesn't learn to look for a different signal.
@@ -1302,12 +1367,20 @@ li{margin-bottom:6px;}
       if(!email||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){sendJSON(res,{ok:false,message:'Enter a valid email address'},400);return;}
       const pwCheck = validateSignupPassword(password, email);
       if(!pwCheck.ok){sendJSON(res,{ok:false,message:pwCheck.message},400);return;}
+      // Private beta gate: the operator's BETA_CODE or a friend's referral code.
+      const codeInput=String(betaCode||'').trim();
+      let referrer=null;
+      const matchesBetaCode = BETA_CODE && codeInput.toLowerCase()===BETA_CODE.toLowerCase();
+      if(!matchesBetaCode){
+        referrer=findUserByReferralCode(codeInput);
+        if(!referrer){sendJSON(res,{ok:false,message:'ShipmentScope is in private beta — enter a valid beta access code or a referral code from an existing member.'},403);return;}
+      }
       const users=loadUsers();
       if(users.some(u=>u.email.toLowerCase()===email.toLowerCase())){sendJSON(res,{ok:false,message:'An account with that email already exists'},409);return;}
       // Don't create the account yet — email a 6-digit code first and stash the
       // would-be account fields in a short-lived challenge. verify-code creates it.
       const {salt,hash}=hashPassword(password);
-      const {token:challenge,code}=createChallenge('signup', email, {email,salt,hash,acceptedTerms:!!acceptedTerms});
+      const {token:challenge,code}=createChallenge('signup', email, {email,salt,hash,acceptedTerms:!!acceptedTerms,referredBy:referrer?referrer.id:null});
       sendMail(email,'Your ShipmentScope verification code',twoFactorEmailHtml(code,'signup')).catch(e=>console.log('2FA email failed:',e.message));
       sendJSON(res,{ok:true,needsCode:true,challenge,email});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
@@ -1328,9 +1401,10 @@ li{margin-bottom:6px;}
         const token=createSession(user.id);
         const users=loadUsers();
         const idx=users.findIndex(u=>u.id===user.id);
-        if(idx>-1){users[idx].lastLoginAt=new Date().toISOString();saveUsers(users);}
+        let fresh=user;
+        if(idx>-1){users[idx].lastLoginAt=new Date().toISOString();ensureUserDefaults(users[idx],users);saveUsers(users);fresh=users[idx];}
         res.setHeader('Set-Cookie',sessionCookie(token, 30*24*60*60, req));
-        sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken});
+        sendJSON(res,{ok:true,email:fresh.email,webhookToken:fresh.webhookToken,...trialInfo(fresh)});
         return;
       }
       // New/unknown device → email a code and require verification.
@@ -1358,9 +1432,24 @@ li{margin-bottom:6px;}
         const users=loadUsers();
         if(users.some(u=>u.email.toLowerCase()===p.data.email.toLowerCase())){ sendJSON(res,{ok:false,message:'An account with that email already exists'},409); return; }
         const isFirstUser=users.length===0;
-        user={id:crypto.randomUUID(),email:p.data.email,salt:p.data.salt,hash:p.data.hash,webhookToken:crypto.randomBytes(16).toString('hex'),createdAt:nowIso,lastLoginAt:nowIso,acceptedTermsAt:p.data.acceptedTerms?nowIso:null,termsVersion:'2026-07-05',trustedDevices:[]};
+        // 10-week beta trial; referred signups get the +10-day welcome bonus.
+        const trialEndsAt=addDaysIso(nowIso, TRIAL_DAYS+(p.data.referredBy?REFERRAL_BONUS_DAYS:0));
+        user={id:crypto.randomUUID(),email:p.data.email,salt:p.data.salt,hash:p.data.hash,webhookToken:crypto.randomBytes(16).toString('hex'),createdAt:nowIso,lastLoginAt:nowIso,acceptedTermsAt:p.data.acceptedTerms?nowIso:null,termsVersion:'2026-07-05',trustedDevices:[],trialEndsAt,referralCode:makeReferralCode(users),referralCount:0,referredBy:p.data.referredBy||null};
         deviceToken=addTrustedDevice(user);
-        users.push(user);saveUsers(users);
+        users.push(user);
+        // Credit the referrer: +10 days for every 3rd completed referral.
+        // Grandfathered/unlimited accounts (no trialEndsAt) have nothing to extend.
+        if(p.data.referredBy){
+          const ref=users.find(u=>u.id===p.data.referredBy);
+          if(ref){
+            ref.referralCount=(ref.referralCount||0)+1;
+            if(ref.referralCount%REFERRALS_PER_BONUS===0 && ref.trialEndsAt){
+              const base=new Date(ref.trialEndsAt)>new Date()?ref.trialEndsAt:nowIso; // expired trials extend from today
+              ref.trialEndsAt=addDaysIso(base, REFERRAL_BONUS_DAYS);
+            }
+          }
+        }
+        saveUsers(users);
         if(isFirstUser){ const legacyOrders=loadOrders(); if(legacyOrders.length) saveOrdersFor(user.id, legacyOrders); }
       }else{
         const users=loadUsers();
@@ -1369,11 +1458,12 @@ li{margin-bottom:6px;}
         user=users[idx];
         deviceToken=addTrustedDevice(user);
         user.lastLoginAt=nowIso;
+        ensureUserDefaults(user, users);
         saveUsers(users);
       }
       const sessToken=createSession(user.id);
       res.setHeader('Set-Cookie',[sessionCookie(sessToken, 30*24*60*60, req), deviceCookie(deviceToken, 30*24*60*60, req)]);
-      sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken});
+      sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken,...trialInfo(user)});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
   }
@@ -1403,9 +1493,12 @@ li{margin-bottom:6px;}
 
   if(req.method==='GET'&&req.url==='/api/auth/me'){
     const userId=getSessionUserId(req);
-    const user=userId&&findUserById(userId);
+    if(!userId){sendJSON(res,{ok:false},401);return;}
+    const users=loadUsers();
+    const user=users.find(u=>u.id===userId);
     if(!user){sendJSON(res,{ok:false},401);return;}
-    sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken});
+    if(ensureUserDefaults(user, users))saveUsers(users); // backfill referral code for pre-beta accounts
+    sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken,...trialInfo(user)});
     return;
   }
 
@@ -1451,6 +1544,71 @@ li{margin-bottom:6px;}
   // Everything below here is private, per-user data — require a real session.
   const userId=getSessionUserId(req);
   if(!userId){sendJSON(res,{ok:false,message:'Not logged in'},401);return;}
+
+  // Beta-trial gate: once a user's 10-week trial (plus any referral bonuses)
+  // ends, the data APIs lock. They can still log in, see the lock screen with
+  // their referral code, and delete their account — nothing is erased.
+  {
+    const gateUser=findUserById(userId);
+    if(gateUser && isTrialExpired(gateUser) && req.url!=='/api/account/delete'){
+      sendJSON(res,{ok:false,trialExpired:true,message:'Your beta trial has ended.'},403);
+      return;
+    }
+  }
+
+  // ── DISCORD ────────────────────────────────────────────────────────
+  // The browser can't call discord.com directly (CSP connect-src 'self'), so
+  // the app sends the user's own webhook URL + payload here and we forward it.
+  // Only real Discord webhook URLs are accepted — this is not an open proxy.
+  if(req.method==='POST'&&req.url==='/api/discord/send'){
+    try{
+      if(isRateLimited('discord:'+userId, 30, 60*60*1000)){sendJSON(res,{ok:false,message:'Too many Discord messages — try again later.'},429);return;}
+      const {webhookUrl,content,embeds,imageDataUrl,filename}=JSON.parse(await readBody(req));
+      if(!/^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+$/.test(String(webhookUrl||''))){
+        sendJSON(res,{ok:false,message:'That does not look like a Discord webhook URL.'},400);return;
+      }
+      let resp;
+      if(imageDataUrl){
+        const m=String(imageDataUrl).match(/^data:image\/png;base64,(.+)$/);
+        if(!m||m[1].length>4_000_000){sendJSON(res,{ok:false,message:'Invalid or oversized image.'},400);return;}
+        const form=new FormData();
+        form.append('payload_json',JSON.stringify({content:String(content||'').slice(0,1500)}));
+        form.append('files[0]',new Blob([Buffer.from(m[1],'base64')],{type:'image/png'}),String(filename||'shipmentscope-card.png').replace(/[^\w.-]/g,'_'));
+        resp=await fetch(webhookUrl,{method:'POST',body:form});
+      }else{
+        const payload={content:String(content||'').slice(0,1500)};
+        if(Array.isArray(embeds)) payload.embeds=embeds.slice(0,5);
+        resp=await fetch(webhookUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      }
+      if(resp.ok||resp.status===204) sendJSON(res,{ok:true});
+      else sendJSON(res,{ok:false,message:'Discord rejected the message ('+resp.status+'). Check the webhook URL.'},502);
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
+
+  // ── FEEDBACK / BUG REPORTS ────────────────────────────────────────
+  // Saved to data/feedback.json (visible on /admin) and, if the operator set
+  // DISCORD_FEEDBACK_WEBHOOK, forwarded straight into their Discord channel.
+  if(req.method==='POST'&&req.url==='/api/feedback'){
+    try{
+      if(isRateLimited('feedback:'+userId, 5, 60*60*1000)){sendJSON(res,{ok:false,message:'Too many reports — try again later.'},429);return;}
+      const {message}=JSON.parse(await readBody(req));
+      const text=String(message||'').trim().slice(0,2000);
+      if(!text){sendJSON(res,{ok:false,message:'Write a short description first.'},400);return;}
+      const fbFile=path.join(DATA_DIR,'feedback.json');
+      let all=[]; try{ if(fs.existsSync(fbFile)) all=JSON.parse(fs.readFileSync(fbFile,'utf8'))||[]; }catch(_){}
+      const me=findUserById(userId);
+      all.unshift({ts:new Date().toISOString(),email:me?me.email:'unknown',message:text});
+      if(all.length>500)all.length=500;
+      fs.writeFileSync(fbFile,JSON.stringify(all,null,2));
+      const hook=(process.env.DISCORD_FEEDBACK_WEBHOOK||'').trim();
+      if(/^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+$/.test(hook)){
+        fetch(hook,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({embeds:[{title:'🐛 Beta feedback',description:text.slice(0,1000),footer:{text:(me?me.email:'unknown')},color:0x7c5cff}]})}).catch(()=>{});
+      }
+      sendJSON(res,{ok:true});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
 
   if(req.method==='GET'&&req.url==='/api/oauth/google/start'){
     if(!googleOAuthConfigured()){
