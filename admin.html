@@ -85,7 +85,25 @@ td.num{text-align:right;}th.num{text-align:right;}
 .fb .who{font-size:11px;color:var(--txt3);margin-bottom:4px;}
 .fb .msg{font-size:13px;color:var(--txt2);white-space:pre-wrap;}
 .tbl-scroll{overflow-x:auto;}
+.giveaway{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.giveaway-card{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;background:var(--panel2);border:1px solid var(--brd);border-radius:13px;padding:12px;}
+.rank{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-weight:950;color:white;box-shadow:0 10px 24px rgba(124,92,255,.25);}
+.giveaway-card:nth-child(1) .rank{background:linear-gradient(135deg,#f3c769,#e8943d);}
+.giveaway-card:nth-child(2) .rank{background:linear-gradient(135deg,#b9c7df,#7f8da8);}
+.giveaway-card:nth-child(3) .rank{background:linear-gradient(135deg,#d68d56,#925333);}
+.giveaway-main{min-width:0;}
+.giveaway-main b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.giveaway-main span{display:block;margin-top:3px;font-size:11.5px;color:var(--txt3);}
+.giveaway-score{text-align:right;font-weight:900;color:var(--green);font-variant-numeric:tabular-nums;}
+.controls{min-width:360px;}
+.ctl-row{display:flex;gap:6px;flex-wrap:wrap;}
+.ctl{border:1px solid var(--brd2);background:rgba(255,255,255,.055);color:var(--txt2);border-radius:8px;padding:6px 8px;font-size:11px;font-weight:850;cursor:pointer;transition:.15s ease;}
+.ctl:hover{transform:translateY(-1px);border-color:rgba(124,92,255,.6);color:white;background:rgba(124,92,255,.18);}
+.ctl.good{border-color:rgba(79,191,139,.35);color:var(--green);}
+.ctl.warn{border-color:rgba(224,167,66,.35);color:var(--amber);}
+.ctl.bad{border-color:rgba(242,102,94,.35);color:var(--red);}
 @media(max-width:960px){.hero,.grid-2{grid-template-columns:1fr;}.tiles{grid-template-columns:repeat(2,minmax(0,1fr));}.hero-title{font-size:28px;}}
+@media(max-width:760px){.giveaway{grid-template-columns:1fr;}}
 @media(max-width:620px){body{padding:18px 12px;}.topbar{align-items:flex-start;flex-direction:column;}.tiles{grid-template-columns:1fr;}.status-row{grid-template-columns:78px 1fr 36px;}.hero-card{padding:18px;}}
 </style>
 </head>
@@ -104,6 +122,39 @@ td.num{text-align:right;}th.num{text-align:right;}
   <div id="content"><div class="empty"><i class="ti ti-loader-2"></i><p>Loading…</p></div></div>
 </div>
 <script>
+async function adminAction(userId,action,days){
+  const labels={
+    'extend-trial':'extend this trial',
+    'set-trial-days':'set this trial',
+    'make-unlimited':'make this user unlimited',
+    'expire-trial':'expire this trial',
+    'reset-referral':'reset this referral code',
+    'reset-devices':'reset trusted devices',
+    'disconnect-email':'disconnect this user email sync',
+    'force-logout':'force this user to log in again'
+  };
+  if(action==='set-trial-days'){
+    const entered=prompt('How many trial days should this user have from today?',String(days||70));
+    if(entered===null)return;
+    days=Number(entered);
+    if(!Number.isFinite(days)||days<0){alert('Enter a valid number of days.');return;}
+  }
+  if(['expire-trial','reset-referral','reset-devices','disconnect-email','force-logout'].includes(action)){
+    if(!confirm('Confirm: '+(labels[action]||'run this action')+'?'))return;
+  }
+  try{
+    const res=await fetch('/api/admin/user-action',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({userId,action,days})
+    });
+    const data=await res.json();
+    if(!data.ok)throw new Error(data.message||'Action failed');
+    await load();
+  }catch(e){
+    alert(e.message||'Could not update user.');
+  }
+}
 async function load(){
   const el=document.getElementById('content');
   try{
@@ -113,13 +164,14 @@ async function load(){
     const s=data.stats;
     if(!s.totalUsers){el.innerHTML='<div class="empty"><i class="ti ti-chart-bar"></i><p>No accounts yet — stats will appear once people sign up.</p></div>';return;}
     const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const attr=t=>esc(t).replace(/"/g,'&quot;');
     const fdate=t=>t?new Date(t).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
     const money=n=>'$'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2});
     const pct=(part,total)=>total?Math.round(part/total*100):0;
     const initials=email=>String(email||'?').slice(0,1);
     const trialPill=d=>d==null?'<span class="pill inf">∞ unlimited</span>':d<=0?'<span class="pill bad">expired</span>':d<=10?'<span class="pill warn">'+d+'d left</span>':'<span class="pill ok">'+d+'d left</span>';
     const users=s.perUser||[];
-    const topOrders=[...users].sort((a,b)=>b.orders-a.orders).slice(0,5);
+    const topOrders=[...users].sort((a,b)=>b.orders-a.orders).slice(0,10);
     const topReferrals=[...users].sort((a,b)=>b.referralCount-a.referralCount).slice(0,5);
     const expiring=users.filter(u=>u.trialDaysLeft!=null&&u.trialDaysLeft<=10).length;
     const connectedRate=pct(s.totalAccounts,s.totalUsers);
@@ -154,18 +206,34 @@ async function load(){
         '<div class="tile"><div class="tile-ico"><i class="ti ti-calendar-stats"></i></div><div class="tile-val">'+(s.active30d||0).toLocaleString()+'</div><div class="tile-lbl">Active in last 30 days</div></div>'+
         '<div class="tile"><div class="tile-ico"><i class="ti ti-chart-dots"></i></div><div class="tile-val">'+s.avgOrdersPerUser+'</div><div class="tile-lbl">Avg orders per account</div></div>'+
       '</div>'+
+      '<div class="section-lbl">Giveaway order leaderboard</div>'+
+      '<div class="panel">'+
+        '<div class="giveaway">'+
+          (topOrders.length?topOrders.map((u,i)=>'<div class="giveaway-card"><div class="rank">'+(i+1)+'</div><div class="giveaway-main"><b>'+esc(u.email)+'</b><span>'+u.ordersThisMonth+' orders this month · '+money(u.spend)+' tracked</span></div><div class="giveaway-score">'+u.orders+'<br><span style="font-size:10px;color:var(--txt3);font-weight:800;">orders</span></div></div>').join(''):'<div class="sub">No order activity yet.</div>')+
+        '</div>'+
+      '</div>'+
       '<div class="section-lbl">Signals</div>'+
       '<div class="grid-2">'+
         '<div class="panel"><h2>Orders by status</h2><div class="status-bars">'+
           Object.entries(s.statusBreakdown).map(([k,v])=>'<div class="status-row" style="--tone:'+(statusTone[k]||'#7c5cff')+'"><span>'+k+'</span><div class="status-track"><div class="status-fill" style="width:'+pct(v,s.totalOrders)+'%"></div></div><strong>'+v.toLocaleString()+'</strong></div>').join('')+
         '</div></div>'+
         '<div class="panel"><h2>Top users</h2>'+
-          (topOrders.length?topOrders.map(u=>'<div class="leader-row"><div class="avatar">'+esc(initials(u.email))+'</div><div class="leader-main"><b>'+esc(u.email)+'</b><span>'+u.ordersThisMonth+' this month · '+money(u.spend)+' tracked</span></div><div class="leader-score">'+u.orders+' orders</div></div>').join(''):'<div class="sub">No order activity yet.</div>')+
+          (topOrders.length?topOrders.slice(0,5).map(u=>'<div class="leader-row"><div class="avatar">'+esc(initials(u.email))+'</div><div class="leader-main"><b>'+esc(u.email)+'</b><span>'+u.ordersThisMonth+' this month · '+money(u.spend)+' tracked</span></div><div class="leader-score">'+u.orders+' orders</div></div>').join(''):'<div class="sub">No order activity yet.</div>')+
         '</div>'+
       '</div>'+
       '<div class="section-lbl">Users</div>'+
-      '<div class="tbl-scroll"><table><tr><th>Email</th><th>Joined</th><th>Last login</th><th class="num">Orders</th><th class="num">This month</th><th class="num">Spend</th><th class="num">Inventory</th><th>Trial</th><th class="num">Referrals</th></tr>'+
-        users.map(u=>'<tr><td>'+esc(u.email)+'</td><td>'+fdate(u.createdAt)+'</td><td>'+fdate(u.lastLoginAt)+'</td><td class="num">'+u.orders+'</td><td class="num">'+u.ordersThisMonth+'</td><td class="num">'+money(u.spend)+'</td><td class="num">'+u.inventoryItems+'</td><td>'+trialPill(u.trialDaysLeft)+'</td><td class="num">'+u.referralCount+'</td></tr>').join('')+
+      '<div class="tbl-scroll"><table><tr><th>Email</th><th>Joined</th><th>Last login</th><th class="num">Orders</th><th class="num">This month</th><th class="num">Spend</th><th class="num">Inventory</th><th>Trial</th><th class="num">Referrals</th><th>Controls</th></tr>'+
+        users.map(u=>'<tr><td>'+esc(u.email)+'</td><td>'+fdate(u.createdAt)+'</td><td>'+fdate(u.lastLoginAt)+'</td><td class="num">'+u.orders+'</td><td class="num">'+u.ordersThisMonth+'</td><td class="num">'+money(u.spend)+'</td><td class="num">'+u.inventoryItems+'</td><td>'+trialPill(u.trialDaysLeft)+'</td><td class="num">'+u.referralCount+'</td><td class="controls"><div class="ctl-row">'+
+          '<button class="ctl good" onclick="adminAction(\''+attr(u.id)+'\',\'extend-trial\',10)">+10d</button>'+
+          '<button class="ctl good" onclick="adminAction(\''+attr(u.id)+'\',\'extend-trial\',30)">+30d</button>'+
+          '<button class="ctl" onclick="adminAction(\''+attr(u.id)+'\',\'set-trial-days\',70)">Set days</button>'+
+          '<button class="ctl" onclick="adminAction(\''+attr(u.id)+'\',\'make-unlimited\')">Unlimited</button>'+
+          '<button class="ctl warn" onclick="adminAction(\''+attr(u.id)+'\',\'reset-referral\')">New code</button>'+
+          '<button class="ctl warn" onclick="adminAction(\''+attr(u.id)+'\',\'reset-devices\')">Reset devices</button>'+
+          '<button class="ctl bad" onclick="adminAction(\''+attr(u.id)+'\',\'expire-trial\')">Expire</button>'+
+          '<button class="ctl bad" onclick="adminAction(\''+attr(u.id)+'\',\'force-logout\')">Logout</button>'+
+          '<button class="ctl bad" onclick="adminAction(\''+attr(u.id)+'\',\'disconnect-email\')">Disconnect email</button>'+
+        '</div></td></tr>').join('')+
       '</table></div>'+
       '<div class="section-lbl">Referrals</div>'+
       '<div class="panel">'+

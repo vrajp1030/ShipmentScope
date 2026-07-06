@@ -660,7 +660,7 @@ function computeAdminStats(){
     if(lastLogin && now-lastLogin < 7*24*60*60*1000) active7d++;
     if(lastLogin && now-lastLogin < 30*24*60*60*1000) active30d++;
     perUser.push({
-      email:u.email, createdAt:u.createdAt, lastLoginAt:u.lastLoginAt||null,
+      id:u.id, email:u.email, createdAt:u.createdAt, lastLoginAt:u.lastLoginAt||null,
       orders:orders.length, ordersThisMonth:userMonth,
       spend:Math.round(userSpend*100)/100, inventoryItems:inv.length,
       trialDaysLeft:trialDaysLeft(u), referralCode:u.referralCode||null, referralCount:u.referralCount||0,
@@ -678,6 +678,44 @@ function computeAdminStats(){
     avgOrdersPerUser: users.length ? Math.round((totalOrders/users.length)*10)/10 : 0,
     perUser, feedback,
   };
+}
+function clampAdminDays(days, fallback=0){
+  const n=parseInt(days,10);
+  if(!Number.isFinite(n)) return fallback;
+  return Math.max(-3650, Math.min(3650, n));
+}
+function adminUserAction({userId,email,action,days}){
+  const users=loadUsers();
+  const idx=users.findIndex(u=>u.id===userId || (email&&u.email&&u.email.toLowerCase()===String(email).toLowerCase()));
+  if(idx<0) throw new Error('User not found');
+  const user=users[idx];
+  ensureUserDefaults(user, users);
+  const nowIso=new Date().toISOString();
+  if(action==='extend-trial'){
+    const add=clampAdminDays(days,10);
+    const base=user.trialEndsAt && new Date(user.trialEndsAt)>new Date() ? user.trialEndsAt : nowIso;
+    user.trialEndsAt=addDaysIso(base, add);
+  }else if(action==='set-trial-days'){
+    user.trialEndsAt=addDaysIso(nowIso, Math.max(0, clampAdminDays(days,70)));
+  }else if(action==='make-unlimited'){
+    delete user.trialEndsAt;
+  }else if(action==='expire-trial'){
+    user.trialEndsAt=addDaysIso(nowIso, -1);
+  }else if(action==='reset-referral'){
+    user.referralCode=makeReferralCode(users);
+  }else if(action==='reset-devices'){
+    user.trustedDevices=[];
+  }else if(action==='disconnect-email'){
+    saveAccountsFor(user.id, []);
+  }else if(action==='force-logout'){
+    for(const [tok,sess] of sessions){ if(sess.userId===user.id) sessions.delete(tok); }
+    persistSessions();
+  }else{
+    throw new Error('Unknown admin action');
+  }
+  user.adminUpdatedAt=nowIso;
+  saveUsers(users);
+  return {email:user.email, ...trialInfo(user)};
 }
 
 // Per-user buffer of newly-found orders (fixes a real bug: this used to be ONE
@@ -1138,7 +1176,8 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 function isAdminAuthorized(req) { return !!ADMIN_PASSWORD && checkBasicAuth(req, ADMIN_PASSWORD); }
 function isAdminRoute(req) {
   const pathOnly = String(req.url||'').split('?')[0];
-  return req.method==='GET' && (pathOnly==='/admin' || pathOnly==='/api/admin/stats');
+  return (req.method==='GET' && (pathOnly==='/admin' || pathOnly==='/api/admin/stats')) ||
+    (req.method==='POST' && pathOnly==='/api/admin/user-action');
 }
 
 const server = http.createServer(async (req, res) => {
@@ -1356,6 +1395,16 @@ li{margin-bottom:6px;}
     if(!ADMIN_PASSWORD){sendJSON(res,{ok:false,message:'Admin panel disabled'},404);return;}
     if(!isAdminAuthorized(req)){sendJSON(res,{ok:false,message:'Not authorized'},401);return;}
     sendJSON(res,{ok:true,stats:computeAdminStats()});
+    return;
+  }
+  if(req.method==='POST'&&req.url==='/api/admin/user-action'){
+    if(!ADMIN_PASSWORD){sendJSON(res,{ok:false,message:'Admin panel disabled'},404);return;}
+    if(!isAdminAuthorized(req)){sendJSON(res,{ok:false,message:'Not authorized'},401);return;}
+    try{
+      const body=JSON.parse(await readBody(req));
+      const result=adminUserAction(body||{});
+      sendJSON(res,{ok:true,result,stats:computeAdminStats()});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
   }
 
