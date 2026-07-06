@@ -341,6 +341,7 @@
     <div id="pane-dashboard" class="pane on">
       <div class="dash-grid2">
         <div class="dash-main2">
+          <div class="onboard-card" id="onboard-card"></div>
           <div class="dash-stat-row">
             <div class="dtile"><div class="dt-ico tone-purple"><i class="ti ti-package"></i></div><div class="dt-lbl">Total orders</div><div class="dt-val" id="d-total">0</div><div class="mt-bar"><div class="mt-bar-fill" id="d-total-bar" style="background:var(--accent);"></div></div><div class="dt-delta" id="d-total-delta"></div></div>
             <div class="dtile"><div class="dt-ico tone-blue"><i class="ti ti-truck-delivery"></i></div><div class="dt-lbl">In transit</div><div class="dt-val" id="d-sh">0</div><div class="mt-bar"><div class="mt-bar-fill" id="d-sh-bar" style="background:var(--blue);"></div></div><div class="dt-delta" id="d-sh-delta"></div></div>
@@ -369,6 +370,7 @@
               <p class="dash-stores-note" id="dash-stores-note"></p>
               <div class="dash-store-logos" id="dash-top-stores"></div>
             </div>
+            <div class="invite-card" id="invite-card"></div>
             <div class="chart-card">
               <h3>Quick actions</h3>
               <div class="dash-qa-row">
@@ -666,6 +668,10 @@
           </div>
         </div>
         <div class="sync-col">
+          <div class="sync-health-card">
+            <div class="scan-box-h"><i class="ti ti-activity-heartbeat"></i><h4>Sync health</h4></div>
+            <div id="sync-health"></div>
+          </div>
           <div class="scan-box">
             <div class="scan-box-h"><i class="ti ti-wand"></i><h4>Scan inbox for orders</h4></div>
             <p id="scan-p">Connect an account then scan. ShipmentScope imports merchandise orders and package updates only; food, grocery, travel, ticket, subscription and service receipts are skipped automatically. Scan window and poll interval are configurable in Settings.</p>

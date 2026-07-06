@@ -246,7 +246,7 @@ function sw(tab){
   if(tab==='emails')safeRun(rEmails);
   if(tab==='tracking')safeRun(rTracking);
   if(tab==='calendar')safeRun(rCal);
-  if(tab==='sync'){safeRun(renderSyncHistory);safeRun(updateScanMeta);}
+  if(tab==='sync'){safeRun(renderSyncHistory);safeRun(renderSyncHealth);safeRun(updateScanMeta);}
   if(tab==='insights')safeRun(rInsights);
 }
 function safeRun(fn){try{fn();}catch(e){console.error('render error in',fn.name,e);}}
@@ -518,6 +518,7 @@ function monthStatusCount(status,m,y){
 function rDashboard(){
   const actEl=$('dash-activity'),gaugeSubEl=$('dash-gauge-sub');
   if(!actEl||!$('d-total'))return;
+  renderDashboardActionCards();
 
   // Personalized hero title (overrides the static TAB_HERO entry). The wave
   // emoji sits in its own span so the gradient text-clip doesn't blank it.
@@ -1571,7 +1572,7 @@ function setAcctSyncMeta(email,meta){
 }
 function renderAccountList(){
   const el=$('account-list');if(!el)return;
-  if(!imapAccounts.length){el.innerHTML='<div style="font-size:14px;color:var(--txt3);padding:8px 0;">No accounts connected yet — click below to add one.</div>';return;}
+  if(!imapAccounts.length){el.innerHTML='<div style="font-size:14px;color:var(--txt3);padding:8px 0;">No accounts connected yet — click below to add one.</div>';safeRun(renderSyncHealth);safeRun(renderDashboardActionCards);return;}
   const meta=getAcctSyncMeta();
   el.innerHTML=imapAccounts.map(a=>{
     const m=meta[a.email.toLowerCase()];
@@ -1581,6 +1582,8 @@ function renderAccountList(){
     '<div class="sinfo"><h4><span class="acct-health-dot '+health+'" title="'+status+'"></span>'+escHtml(a.email)+'</h4><p>'+providerLabel(a.provider)+' · '+status+' · encrypted on server</p></div>'+
     '<button class="sbtn" onclick="disconnectAccount(\''+a.email.replace(/'/g,"\\'")+'\')">Disconnect</button></div>';
   }).join('');
+  safeRun(renderSyncHealth);
+  safeRun(renderDashboardActionCards);
 }
 // ── SYNC HISTORY — localStorage log of past scans (mirrors the po_orders/
 // po_settings pattern), so the Sync page has something to show besides a
@@ -1595,7 +1598,7 @@ function pushSyncHistory(entry){
 function renderSyncHistory(){
   const el=$('sync-history');if(!el)return;
   const hist=loadSyncHistory().slice(0,5);
-  if(!hist.length){el.innerHTML='<div class="notif-empty">No syncs yet — connect an account and hit Scan inbox.</div>';return;}
+  if(!hist.length){el.innerHTML='<div class="notif-empty">No syncs yet — connect an account and hit Scan inbox.</div>';safeRun(renderSyncHealth);return;}
   el.innerHTML=hist.map(h=>{
     const hasErr=h.errors&&h.errors.length;
     const health=hasErr?'red':(h.added>0?'green':'amber');
@@ -1605,6 +1608,58 @@ function renderSyncHistory(){
       '<div style="font-size:11px;color:var(--txt3);font-weight:500;">'+summary+'</div></div>'+
       '<div style="font-size:11px;color:var(--txt3);flex-shrink:0;">'+timeAgo(h.ts)+'</div></div>';
   }).join('');
+  safeRun(renderSyncHealth);
+}
+function renderSyncHealth(){
+  const el=$('sync-health');if(!el)return;
+  const hist=loadSyncHistory();
+  const meta=getAcctSyncMeta();
+  const last=hist[0];
+  const totalFound=hist.reduce((s,h)=>s+(h.found||0),0);
+  const totalAdded=hist.reduce((s,h)=>s+(h.added||0),0);
+  const totalErrors=hist.reduce((s,h)=>s+((h.errors||[]).length),0);
+  const healthy=imapAccounts.filter(a=>meta[a.email?.toLowerCase()]?.ok).length;
+  const lastError=hist.find(h=>h.errors&&h.errors.length)?.errors?.[0]||'';
+  const rows=[
+    ['Connected accounts',String(imapAccounts.length),imapAccounts.length?'green':'amber'],
+    ['Healthy accounts',String(healthy)+' / '+imapAccounts.length,imapAccounts.length&&healthy===imapAccounts.length?'green':imapAccounts.length?'amber':'muted'],
+    ['Last scan',last?timeAgo(last.ts):'Never','muted'],
+    ['Orders imported',String(totalAdded),'green'],
+    ['Emails found',String(totalFound),'muted'],
+    ['Scan errors',String(totalErrors),totalErrors?'red':'green'],
+  ];
+  el.innerHTML='<div class="sync-health-grid">'+rows.map(([label,val,tone])=>
+    '<div class="sync-health-row '+tone+'"><span>'+escHtml(label)+'</span><strong>'+escHtml(val)+'</strong></div>'
+  ).join('')+'</div>'+
+  (lastError?'<div class="sync-health-error"><i class="ti ti-alert-triangle"></i>'+escHtml(lastError)+'</div>':
+    '<div class="sync-health-note"><i class="ti ti-shield-check"></i>No recent sync errors.</div>');
+}
+function renderDashboardActionCards(){
+  const onboard=$('onboard-card');
+  if(onboard){
+    const hist=loadSyncHistory();
+    const steps=[
+      {label:'Create account',done:!!currentUserEmail,action:null},
+      {label:'Connect email',done:imapAccounts.length>0,action:"sw('sync');showAddAccountForm();"},
+      {label:'Scan inbox',done:hist.length>0,action:"sw('sync');"},
+      {label:'Import first order',done:orders.length>0,action:"sw('orders');"},
+    ];
+    const incomplete=steps.find(s=>!s.done);
+    if(orders.length&&imapAccounts.length)onboard.style.display='none';
+    else{
+      onboard.style.display='block';
+      onboard.innerHTML='<div class="onboard-head"><div><h3>Finish setting up ShipmentScope</h3><p>Connect your inbox, scan for merchandise orders, then start tracking.</p></div><button class="rb-btn" onclick="'+(incomplete?.action||"sw('sync')")+'"><i class="ti ti-arrow-right" style="font-size:13px;"></i> Continue</button></div>'+
+        '<div class="onboard-steps">'+steps.map(s=>'<div class="onboard-step '+(s.done?'done':'')+'"><i class="ti '+(s.done?'ti-circle-check':'ti-circle')+'"></i><span>'+s.label+'</span></div>').join('')+'</div>';
+    }
+  }
+  const invite=$('invite-card');
+  if(invite){
+    const code=trialState&&trialState.referralCode;
+    invite.innerHTML='<h3>Invite beta testers</h3>'+
+      '<p>'+(code?'Share your code. Every '+trialState.perBonus+' completed sign-ups adds +'+trialState.bonusDays+' days to your beta trial.':'Log in again to load your referral code.')+'</p>'+
+      '<div class="invite-code">'+escHtml(code||'—')+'</div>'+
+      '<div class="invite-actions"><button class="rb-btn" onclick="copyReferralCode()"><i class="ti ti-copy" style="font-size:13px;"></i> Copy invite</button><span>'+((trialState&&trialState.referralCount)||0)+' referral'+(((trialState&&trialState.referralCount)||0)===1?'':'s')+'</span></div>';
+  }
 }
 // Surfaces the scan-window/poll-interval settings (otherwise buried in the
 // Settings modal) right on the Sync page, where they're actually relevant.
@@ -3017,6 +3072,7 @@ function applyTrialState(data){
 function renderTrialUI(){
   const pill=$('trial-pill'),lock=$('trial-lock');
   if(!pill||!lock||!trialState)return;
+  safeRun(renderDashboardActionCards);
   if(trialState.expired){
     pill.style.display='none';
     lock.style.display='flex';
