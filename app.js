@@ -364,7 +364,7 @@ function rStats(){
   const cxList=orders.filter(o=>o.status==='cancelled');
   const z=$('cx-zone');
   if(cxList.length&&settings['cancel']){
-    const names=cxList.slice(0,3).map(o=>'<strong style="cursor:pointer;text-decoration:underline dotted;" onclick="openEmail(\''+o.id+'\')">'+(o.name||'Order').slice(0,40)+'</strong>').join('<br>');
+    const names=cxList.slice(0,3).map(o=>'<strong style="cursor:pointer;text-decoration:underline dotted;" onclick="openEmail(&quot;'+escAttr(String(o.id))+'&quot;)">'+escHtml((o.name||'Order').slice(0,40))+'</strong>').join('<br>');
     z.innerHTML='<div class="cx-banner"><i class="ti ti-alert-triangle"></i><div class="cx-txt">'+cxList.length+' cancelled order'+(cxList.length>1?'s':'')+':<br>'+names+(cxList.length>3?'<br>+' +(cxList.length-3)+' more':'')+'</div><button class="cx-close" onclick="this.parentElement.parentElement.innerHTML=\'\'" aria-label="Dismiss"><i class="ti ti-x"></i></button></div>';
   }else z.innerHTML='';
 
@@ -1211,7 +1211,7 @@ function checkDup(){
   if(!settings['dup'])return;
   const name=($('mn').value||'').toLowerCase().trim();
   if(name.length<4){$('dup-warn').style.display='none';return;}
-  const dup=orders.find(o=>(o.name||'').toLowerCase().includes(name)||name.includes((o.name||'').toLowerCase().trim().slice(0,10)));
+  const dup=orders.find(o=>String(o.id)!==String(editingOrderId)&&((o.name||'').toLowerCase().includes(name)||name.includes((o.name||'').toLowerCase().trim().slice(0,10))));
   $('dup-warn').style.display=dup?'block':'none';
 }
 
@@ -1332,6 +1332,13 @@ function deleteFromDetail(){
   const id=currentDetailId;
   closeDetail();
   dO(id);
+}
+function editFromDetail(){
+  const id=currentDetailId;
+  if(!id)return;
+  saveNoteNow();
+  closeDetail();
+  openM(id);
 }
 
 // ── EMAILS PANE ───────────────────────────────────────────────────
@@ -1965,14 +1972,27 @@ async function rInsights(){
 }
 
 // ── ADD MODAL ─────────────────────────────────────────────────────
-function openM(){
-  $('mn').value='';$('ms').value='';$('mp').value='';$('md').value=new Date().toISOString().slice(0,10);
-  $('mo').value='';$('mt').value='';$('med').value='';$('mst').value='ordered';$('dup-warn').style.display='none';
+let editingOrderId=null;
+function openM(id=null){
+  const existing=id!=null?orders.find(o=>String(o.id)===String(id)):null;
+  editingOrderId=existing?existing.id:null;
+  $('order-modal-title').textContent=existing?'Edit order':'Add order';
+  $('order-modal-save').textContent=existing?'Save changes':'Add order';
+  $('mn').value=existing?existing.name||'':'';
+  $('ms').value=existing?existing.store||'':'';
+  $('mp').value=existing&&existing.price?money(existing.price):'';
+  $('md').value=existing?existing.date||new Date().toISOString().slice(0,10):new Date().toISOString().slice(0,10);
+  $('mo').value=existing?existing.orderNum||'':'';
+  $('mt').value=existing?existing.tracking||'':'';
+  $('med').value=existing?existing.expectedDelivery||'':'';
+  $('mst').value=existing?existing.status||'ordered':'ordered';
+  $('dup-warn').style.display='none';
   document.querySelectorAll('.cchip').forEach(el=>el.classList.remove('sel'));
-  document.querySelector('[data-c="other"]').classList.add('sel');selCat='other';
+  selCat=(existing&&CATS[existing.cat])?existing.cat:'other';
+  document.querySelector('[data-c="'+selCat+'"]').classList.add('sel');
   $('mwrap').classList.add('open');
 }
-function closeM(){$('mwrap').classList.remove('open');}
+function closeM(){$('mwrap').classList.remove('open');editingOrderId=null;}
 function pc(el){document.querySelectorAll('.cchip').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');selCat=el.dataset.c;}
 // Same carrier-detection rules server.js uses for email-synced orders — kept here too
 // so a manually-typed tracking number gets a real clickable link, not just stored text.
@@ -1989,7 +2009,20 @@ function saveO(){
   const name=$('mn').value.trim();if(!name){showToast('Enter an item name','warn');return;}
   const tracking=$('mt').value.trim();
   const carrierInfo=detectCarrierClient(tracking);
-  const o={id:nid++,name,store:$('ms').value.trim()||'Unknown',price:parseFloat($('mp').value.replace(/[^0-9.]/g,''))||0,date:$('md').value,status:$('mst').value,cat:selCat,orderNum:$('mo').value.trim(),tracking,expectedDelivery:$('med').value,carrier:carrierInfo?carrierInfo.name:'',trackingUrl:carrierInfo?carrierInfo.url:'',emailHtml:'',emailText:'',notes:'',archived:false,history:[{status:$('mst').value,date:$('md').value||todayISO()}]};
+  const data={name,store:$('ms').value.trim()||'Unknown',price:parseFloat($('mp').value.replace(/[^0-9.]/g,''))||0,date:$('md').value,status:$('mst').value,cat:selCat,orderNum:$('mo').value.trim(),tracking,expectedDelivery:$('med').value,carrier:carrierInfo?carrierInfo.name:'',trackingUrl:carrierInfo?carrierInfo.url:''};
+  if(editingOrderId!=null){
+    const o=orders.find(x=>String(x.id)===String(editingOrderId));
+    if(!o){showToast('Order not found','error');closeM();return;}
+    const oldStatus=o.status;
+    Object.assign(o,data);
+    if(oldStatus!==data.status){
+      o.history=Array.isArray(o.history)?o.history:[];
+      o.history.push({status:data.status,date:data.date||todayISO()});
+    }
+    save();closeM();rOrders();rStats();showToast('Order updated');
+    return;
+  }
+  const o={id:nid++,...data,emailHtml:'',emailText:'',notes:'',archived:false,history:[{status:data.status,date:data.date||todayISO()}]};
   if(settings['dup']&&isDuplicate(o)){if(!confirm('This looks like a duplicate. Add anyway?'))return;}
   orders.push(o);save();closeM();rOrders();rStats();showToast('Order added');
 }
@@ -2716,6 +2749,39 @@ function cmdkOpenInv(id){closeCommandPalette();sw('inventory');const x=inventory
 
 // ── AUTH: login / signup / logout ─────────────────────────────────
 let authMode='login', currentUserEmail='', currentWebhookToken='';
+const COMMON_WEAK_PASSWORD_PARTS=['password','passw0rd','qwerty','letmein','welcome','admin','login','pokemon','pokémon','shipmentscope','shipment','scope','123456','111111'];
+function signupPasswordChecks(password,email){
+  const pw=String(password||'');
+  const lower=pw.toLowerCase();
+  const emailLocal=String(email||'').split('@')[0].toLowerCase();
+  return [
+    {text:'At least 12 characters',ok:pw.length>=12},
+    {text:'Uppercase and lowercase letters',ok:/[a-z]/.test(pw)&&/[A-Z]/.test(pw)},
+    {text:'At least one number',ok:/\d/.test(pw)},
+    {text:'At least one symbol',ok:/[^A-Za-z0-9\s]/.test(pw)},
+    {text:'No spaces',ok:Boolean(pw)&&!/\s/.test(pw)},
+    {text:'Does not include your email name',ok:!emailLocal||emailLocal.length<3||!lower.includes(emailLocal)},
+    {text:'Not a common weak password',ok:!COMMON_WEAK_PASSWORD_PARTS.some(part=>lower.includes(part))},
+  ];
+}
+function renderSignupPasswordRules(forceBad=false){
+  const box=$('auth-pw-rules');
+  if(!box)return;
+  const isSignup=authMode==='signup';
+  box.style.display=isSignup?'grid':'none';
+  const input=$('auth-password');
+  if(input)input.autocomplete=isSignup?'new-password':'current-password';
+  if(!isSignup){box.innerHTML='';return;}
+  const email=$('auth-email')?.value||'',password=$('auth-password')?.value||'';
+  const started=Boolean(password);
+  box.innerHTML=signupPasswordChecks(password,email).map(rule=>{
+    const cls=rule.ok?'ok':((started||forceBad)?'bad':'');
+    return '<div class="auth-pw-rule '+cls+'">'+escHtml(rule.text)+'</div>';
+  }).join('');
+}
+function signupPasswordValid(password,email){
+  return signupPasswordChecks(password,email).every(rule=>rule.ok);
+}
 function setAuthMode(mode){
   authMode=mode;
   // Always land on the credential step (not a leftover code step).
@@ -2728,6 +2794,7 @@ function setAuthMode(mode){
   $('auth-consent-row').style.display=mode==='signup'?'flex':'none';
   if($('auth-consent'))$('auth-consent').checked=false; // re-consent each time signup is opened
   $('auth-error').style.display='none';
+  renderSignupPasswordRules();
 }
 function showLandingScreen(){$('landing-screen').style.display='block';$('auth-screen').style.display='none';document.querySelector('.app').style.display='none';}
 function showAuthScreen(){$('landing-screen').style.display='none';$('auth-screen').style.display='flex';document.querySelector('.app').style.display='none';}
@@ -2738,6 +2805,7 @@ async function submitAuth(){
   const hp_field=($('hp-field')||{}).value||'';
   const errEl=$('auth-error');errEl.style.display='none';
   if(!email||!password){errEl.textContent='Enter your email and password.';errEl.style.display='block';return;}
+  if(authMode==='signup'&&!signupPasswordValid(password,email)){renderSignupPasswordRules(true);errEl.textContent='Password does not meet the security requirements yet.';errEl.style.display='block';return;}
   if(authMode==='signup'&&!$('auth-consent').checked){errEl.textContent='Please agree to the Terms & Privacy Policy to create an account.';errEl.style.display='block';return;}
   const btn=$('auth-submit-btn'), prevText=btn.textContent;
   btn.disabled=true; btn.innerHTML='<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;display:inline-block;"></i> '+prevText;

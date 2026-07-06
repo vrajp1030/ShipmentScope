@@ -387,6 +387,30 @@ function verifyPassword(password, salt, hash) {
   return a.length===b.length && crypto.timingSafeEqual(a,b);
 }
 
+const COMMON_WEAK_PASSWORD_PARTS = [
+  'password','passw0rd','qwerty','letmein','welcome','admin','login',
+  'pokemon','pokémon','shipmentscope','shipment','scope','123456','111111'
+];
+function passwordRuleResults(password, email='') {
+  const pw = String(password||'');
+  const lower = pw.toLowerCase();
+  const emailLocal = String(email||'').split('@')[0].toLowerCase();
+  return [
+    { ok: pw.length >= 12, message: 'Password must be at least 12 characters.' },
+    { ok: pw.length <= 128, message: 'Password must be 128 characters or fewer.' },
+    { ok: /[a-z]/.test(pw) && /[A-Z]/.test(pw), message: 'Password must include uppercase and lowercase letters.' },
+    { ok: /\d/.test(pw), message: 'Password must include at least one number.' },
+    { ok: /[^A-Za-z0-9\s]/.test(pw), message: 'Password must include at least one symbol.' },
+    { ok: !/\s/.test(pw), message: 'Password cannot contain spaces.' },
+    { ok: !emailLocal || emailLocal.length < 3 || !lower.includes(emailLocal), message: 'Password cannot include your email name.' },
+    { ok: !COMMON_WEAK_PASSWORD_PARTS.some(part => lower.includes(part)), message: 'Password is too easy to guess.' },
+  ];
+}
+function validateSignupPassword(password, email='') {
+  const failed = passwordRuleResults(password, email).filter(r => !r.ok);
+  return { ok: failed.length === 0, message: failed[0]?.message || '' };
+}
+
 // ── Encryption for stored IMAP passwords (AES-256-GCM) ──
 // Uses ENCRYPTION_KEY env var if set (recommended for any real deployment);
 // otherwise generates and persists a local key file so local/dev use still
@@ -1102,7 +1126,8 @@ li{margin-bottom:6px;}
       // anything, so the bot doesn't learn to look for a different signal.
       if(hp_field){sendJSON(res,{ok:true,email,webhookToken:''});return;}
       if(!email||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){sendJSON(res,{ok:false,message:'Enter a valid email address'},400);return;}
-      if(!password||password.length<8){sendJSON(res,{ok:false,message:'Password must be at least 8 characters'},400);return;}
+      const pwCheck = validateSignupPassword(password, email);
+      if(!pwCheck.ok){sendJSON(res,{ok:false,message:pwCheck.message},400);return;}
       const users=loadUsers();
       if(users.some(u=>u.email.toLowerCase()===email.toLowerCase())){sendJSON(res,{ok:false,message:'An account with that email already exists'},409);return;}
       // Don't create the account yet — email a 6-digit code first and stash the
@@ -1394,5 +1419,5 @@ module.exports = {
   getStoreName, storeNameFromEmail, getAllowedStore,
   extractOrderNum, extractExpectedDelivery, estimateDelivery,
   detectCarrier, detectCategory, classifyEmail, computeEmailId,
-  isFoodEmail,
+  isFoodEmail, validateSignupPassword,
 };

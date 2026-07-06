@@ -197,9 +197,10 @@
       </div>
       <!-- Honeypot: invisible to real people, but simple signup bots that blindly fill every field trip it -->
       <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true"><input id="hp-field" type="text" tabindex="-1" autocomplete="off"/></div>
-      <div class="mfg"><label>Email</label><input id="auth-email" type="email" placeholder="you@example.com" autocomplete="username"/></div>
-      <div class="mfg"><label>Password</label><input id="auth-password" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitAuth()"/></div>
-      <p class="auth-hint" id="auth-hint" style="display:none;">At least 8 characters. This is your own private account — nobody else can see your orders or connected email accounts.</p>
+      <div class="mfg"><label>Email</label><input id="auth-email" type="email" placeholder="you@example.com" autocomplete="username" oninput="renderSignupPasswordRules()"/></div>
+      <div class="mfg"><label>Password</label><input id="auth-password" type="password" placeholder="••••••••" autocomplete="current-password" oninput="renderSignupPasswordRules()" onkeydown="if(event.key==='Enter')submitAuth()"/></div>
+      <p class="auth-hint" id="auth-hint" style="display:none;">Use a strong password. This is your own private account — nobody else can see your orders or connected email accounts.</p>
+      <div class="auth-pw-rules" id="auth-pw-rules" style="display:none;" aria-live="polite"></div>
       <label class="auth-consent" id="auth-consent-row" style="display:none;"><input type="checkbox" id="auth-consent"/><span>I agree to the <a href="/terms" target="_blank">Terms of Service</a> &amp; <a href="/privacy" target="_blank">Privacy Policy</a>, and understand ShipmentScope is a <strong>beta</strong> provided “as is” — bugs, downtime, and data loss can occur.</span></label>
       <button class="add-btn" style="width:100%;justify-content:center;margin-top:8px;" onclick="submitAuth()" id="auth-submit-btn">Log in</button>
     </div>
@@ -674,6 +675,7 @@
       <button class="ef-close" onclick="closeDetail()">Close</button>
       <button class="ef-copy" id="dt-view-email-btn" onclick="viewEmailFromDetail()"><i class="ti ti-mail" style="font-size:13px;"></i> View original email</button>
       <button class="oact-btn" onclick="addToInventoryFromDetail()" style="margin-left:auto;"><i class="ti ti-building-warehouse" style="font-size:13px;"></i> Add to inventory</button>
+      <button class="oact-btn" onclick="editFromDetail()"><i class="ti ti-edit" style="font-size:13px;"></i> Edit</button>
       <button class="oact-btn" id="dt-archive-btn" onclick="toggleArchiveFromDetail()"><i class="ti ti-archive" style="font-size:13px;"></i> Archive</button>
       <button class="oact-btn danger" onclick="deleteFromDetail()"><i class="ti ti-trash" style="font-size:13px;"></i> Delete</button>
     </div>
@@ -846,7 +848,7 @@
 <!-- ADD MODAL -->
 <div class="modal-overlay" id="mwrap">
   <div class="modal">
-    <div class="mhdr"><h2>Add order</h2><button class="mclose" onclick="closeM()" aria-label="Close"><i class="ti ti-x"></i></button></div>
+    <div class="mhdr"><h2 id="order-modal-title">Add order</h2><button class="mclose" onclick="closeM()" aria-label="Close"><i class="ti ti-x"></i></button></div>
     <div class="mbody">
       <div class="mfg"><label>Item name</label><input id="mn" placeholder="e.g. Surging Sparks Booster Box" oninput="checkDup()"/></div>
       <div class="mfg"><div class="mf2"><div class="mfg"><label>Store</label><input id="ms" placeholder="Pokemon Center"/></div><div class="mfg"><label>Price ($)</label><input id="mp" placeholder="0.00"/></div></div></div>
@@ -867,7 +869,7 @@
       <div class="mfg"><div class="mf2"><div class="mfg"><label>Tracking #</label><input id="mt" placeholder="Optional"/></div><div class="mfg"><label>Expected delivery</label><input id="med" type="date"/></div></div></div>
       <div class="dup-warn" id="dup-warn"><i class="ti ti-alert-triangle"></i> <strong>Possible duplicate!</strong> A similar order already exists. Check before adding.</div>
     </div>
-    <div class="mftr"><button class="mc" onclick="closeM()">Cancel</button><button class="ms" onclick="saveO()">Add order</button></div>
+    <div class="mftr"><button class="mc" onclick="closeM()">Cancel</button><button class="ms" id="order-modal-save" onclick="saveO()">Add order</button></div>
   </div>
 </div>
 
