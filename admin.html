@@ -13,58 +13,94 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 :root{
-  --bg:#05060f;--bg2:#2f343e;--bg3:#3a3f4a;--bg4:#454b58;
-  --brd:rgba(63,73,89,0.6);--brd2:rgba(186,215,247,0.16);
-  --txt:#d8ecf8;--txt2:#c7d3ea;--txt3:rgba(129,137,155,0.85);
-  --accent:#663af3;--accent-d:rgba(102,58,243,0.16);
+  --bg:#070812;--panel:#111423;--panel2:#171b2c;--panel3:#20263a;
+  --brd:rgba(140,153,190,0.18);--brd2:rgba(186,215,247,0.22);
+  --txt:#eef4ff;--txt2:#c9d4ea;--txt3:#7f8aa7;
+  --accent:#7c5cff;--accent2:#6eb3f7;--accent-d:rgba(124,92,255,0.16);
   --green:#4fbf8b;--amber:#e0a742;--red:#f2665e;--purple:#9c8cec;
   --font-display:'Outfit',ui-sans-serif,system-ui,sans-serif;
 }
-body{background:var(--bg);color:var(--txt);font-family:'Inter',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;padding:32px 20px;}
-.wrap{max-width:1000px;margin:0 auto;}
-.hdr{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
-.hdr-title{font-family:var(--font-display);font-size:21px;font-weight:500;letter-spacing:normal;}
+body{background:linear-gradient(180deg,#090a16 0%,#05060f 100%);color:var(--txt);font-family:'Inter',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh;padding:30px 22px;}
+.wrap{max-width:1180px;margin:0 auto;}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:18px;}
+.hdr{display:flex;align-items:center;gap:12px;}
+.hdr img{box-shadow:0 0 0 1px rgba(255,255,255,.12),0 14px 28px rgba(0,0,0,.35);}
+.hdr-title{font-family:var(--font-display);font-size:24px;font-weight:600;letter-spacing:-.2px;}
 .hdr-title .accent{color:var(--accent);}
-.sub{font-size:13px;color:var(--txt3);font-weight:500;margin-bottom:32px;}
-.section-lbl{font-size:11px;font-weight:600;color:var(--txt3);text-transform:uppercase;letter-spacing:1px;margin:32px 0 12px;}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;}
-.tile{background:var(--bg2);border:1px solid var(--brd);border-radius:12px;box-shadow:var(--glow-hairline, inset 0 0 0 1px rgba(186,215,247,0.12));padding:20px;}
-.tile-val{font-family:var(--font-display);font-size:34px;font-weight:500;letter-spacing:0;font-variant-numeric:tabular-nums;color:var(--txt);}
-.tile-lbl{font-size:13px;font-weight:600;color:var(--txt2);margin-top:6px;}
-.tile-sub{font-size:12px;color:var(--txt3);margin-top:3px;}
-.tile.accent .tile-val{color:var(--accent);}
-.tile.green .tile-val{color:var(--green);}
-.tile.amber .tile-val{color:var(--amber);}
-.tile.purple .tile-val{color:var(--purple);}
-.status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;}
-.status-tile{background:var(--bg2);border:1px solid var(--brd);border-radius:6px;padding:14px;}
-.status-val{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;}
-.status-lbl{font-size:11px;font-weight:500;color:var(--txt3);text-transform:uppercase;letter-spacing:.4px;margin-top:4px;}
+.sub{font-size:13px;color:var(--txt3);font-weight:600;margin-top:3px;}
+.admin-badge{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--brd);border-radius:999px;padding:9px 13px;color:var(--txt2);font-size:12px;font-weight:700;}
+.admin-badge i{color:var(--green);font-size:14px;}
+.hero{display:grid;grid-template-columns:1.25fr .75fr;gap:16px;margin-bottom:18px;}
+.hero-card{position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(124,92,255,.2),rgba(110,179,247,.08) 48%,rgba(79,191,139,.08));border:1px solid var(--brd2);border-radius:18px;padding:24px;min-height:178px;box-shadow:0 22px 48px rgba(0,0,0,.28);}
+.hero-card::after{content:'';position:absolute;inset:auto 0 0 0;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.7;}
+.hero-kicker{font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--accent2);margin-bottom:12px;}
+.hero-title{font-family:var(--font-display);font-size:34px;font-weight:700;letter-spacing:-.6px;max-width:560px;line-height:1.08;}
+.hero-meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;}
+.hero-chip{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.055);border-radius:999px;padding:7px 10px;font-size:12px;color:var(--txt2);font-weight:700;}
+.pulse-card{background:var(--panel);border:1px solid var(--brd);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:12px;}
+.pulse-row{display:flex;align-items:center;justify-content:space-between;background:var(--panel2);border:1px solid var(--brd);border-radius:12px;padding:12px 13px;}
+.pulse-row span{font-size:12px;color:var(--txt3);font-weight:800;text-transform:uppercase;letter-spacing:.4px;}
+.pulse-row strong{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;}
+.section-lbl{font-size:11px;font-weight:800;color:var(--txt3);text-transform:uppercase;letter-spacing:1.2px;margin:26px 0 12px;display:flex;align-items:center;gap:8px;}
+.section-lbl::before{content:'';width:22px;height:1px;background:var(--accent);}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}
+.tile{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--brd);border-radius:16px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 16px 34px rgba(0,0,0,.22);padding:18px;position:relative;overflow:hidden;}
+.tile::after{content:'';position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--tone,var(--accent));opacity:.8;}
+.tile-ico{width:38px;height:38px;border-radius:12px;background:color-mix(in srgb,var(--tone,var(--accent)) 18%,transparent);color:var(--tone,var(--accent));display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:12px;}
+.tile-val{font-family:var(--font-display);font-size:34px;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums;color:var(--txt);}
+.tile-lbl{font-size:13px;font-weight:750;color:var(--txt2);margin-top:5px;}
+.tile-sub{font-size:12px;color:var(--txt3);margin-top:4px;line-height:1.35;}
+.tile.accent{--tone:var(--accent);}
+.tile.green{--tone:var(--green);}
+.tile.amber{--tone:var(--amber);}
+.tile.purple{--tone:var(--purple);}
+.grid-2{display:grid;grid-template-columns:1.1fr .9fr;gap:16px;}
+.panel{background:var(--panel);border:1px solid var(--brd);border-radius:16px;padding:16px;box-shadow:0 16px 34px rgba(0,0,0,.18);}
+.panel h2{font-size:15px;font-weight:850;margin-bottom:12px;}
+.status-bars{display:flex;flex-direction:column;gap:10px;}
+.status-row{display:grid;grid-template-columns:96px 1fr 44px;align-items:center;gap:10px;font-size:12px;color:var(--txt2);font-weight:700;}
+.status-track{height:9px;background:var(--panel3);border-radius:999px;overflow:hidden;border:1px solid var(--brd);}
+.status-fill{height:100%;background:var(--tone);border-radius:999px;}
+.leader-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--brd);}
+.leader-row:last-child{border-bottom:none;}
+.avatar{width:32px;height:32px;border-radius:10px;background:var(--accent-d);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:900;text-transform:uppercase;}
+.leader-main{flex:1;min-width:0;}
+.leader-main b{display:block;font-size:12.5px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.leader-main span{font-size:11.5px;color:var(--txt3);}
+.leader-score{font-size:13px;font-weight:850;color:var(--green);}
 .empty{text-align:center;padding:80px 20px;color:var(--txt3);}
 .empty i{font-size:36px;display:block;margin-bottom:10px;}
 .err{background:rgba(242,102,94,.13);border:1px solid rgba(242,102,94,.3);color:var(--red);border-radius:6px;padding:14px 16px;font-size:13px;font-weight:500;}
-table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--brd);border-radius:12px;overflow:hidden;font-size:12.5px;}
-th{background:var(--bg3);text-align:left;padding:10px 12px;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3);}
+table{width:100%;border-collapse:separate;border-spacing:0;background:var(--panel);border:1px solid var(--brd);border-radius:14px;overflow:hidden;font-size:12.5px;}
+th{background:var(--panel3);text-align:left;padding:11px 12px;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);}
 td{padding:10px 12px;border-top:1px solid var(--brd);color:var(--txt2);font-variant-numeric:tabular-nums;}
+tr:hover td{background:rgba(255,255,255,.025);}
 td.num{text-align:right;}th.num{text-align:right;}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;}
 .pill.ok{background:rgba(79,191,139,.15);color:var(--green);}
 .pill.warn{background:rgba(224,167,66,.15);color:var(--amber);}
 .pill.bad{background:rgba(242,102,94,.15);color:var(--red);}
 .pill.inf{background:rgba(156,140,236,.15);color:var(--purple);}
-.fb{background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:12px 14px;margin-bottom:8px;}
+.fb{background:var(--panel);border:1px solid var(--brd);border-radius:10px;padding:12px 14px;margin-bottom:8px;}
 .fb .who{font-size:11px;color:var(--txt3);margin-bottom:4px;}
 .fb .msg{font-size:13px;color:var(--txt2);white-space:pre-wrap;}
 .tbl-scroll{overflow-x:auto;}
+@media(max-width:960px){.hero,.grid-2{grid-template-columns:1fr;}.tiles{grid-template-columns:repeat(2,minmax(0,1fr));}.hero-title{font-size:28px;}}
+@media(max-width:620px){body{padding:18px 12px;}.topbar{align-items:flex-start;flex-direction:column;}.tiles{grid-template-columns:1fr;}.status-row{grid-template-columns:78px 1fr 36px;}.hero-card{padding:18px;}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="hdr">
-    <img src="/assets/logo.png" width="26" height="26" alt="ShipmentScope" style="border-radius:22%;display:block;"/>
-    <div class="hdr-title">Shipment<span class="accent">Scope</span> — Developer Stats</div>
+  <div class="topbar">
+    <div>
+      <div class="hdr">
+        <img src="/assets/logo.png" width="30" height="30" alt="ShipmentScope" style="border-radius:22%;display:block;"/>
+        <div class="hdr-title">Shipment<span class="accent">Scope</span> Command</div>
+      </div>
+      <div class="sub">Real usage across every account on this install.</div>
+    </div>
+    <div class="admin-badge"><i class="ti ti-shield-lock"></i> Admin console</div>
   </div>
-  <div class="sub">Real usage across every account on this install — operator view.</div>
   <div id="content"><div class="empty"><i class="ti ti-loader-2"></i><p>Loading…</p></div></div>
 </div>
 <script>
@@ -78,27 +114,62 @@ async function load(){
     if(!s.totalUsers){el.innerHTML='<div class="empty"><i class="ti ti-chart-bar"></i><p>No accounts yet — stats will appear once people sign up.</p></div>';return;}
     const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const fdate=t=>t?new Date(t).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
+    const money=n=>'$'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2});
+    const pct=(part,total)=>total?Math.round(part/total*100):0;
+    const initials=email=>String(email||'?').slice(0,1);
     const trialPill=d=>d==null?'<span class="pill inf">∞ unlimited</span>':d<=0?'<span class="pill bad">expired</span>':d<=10?'<span class="pill warn">'+d+'d left</span>':'<span class="pill ok">'+d+'d left</span>';
+    const users=s.perUser||[];
+    const topOrders=[...users].sort((a,b)=>b.orders-a.orders).slice(0,5);
+    const topReferrals=[...users].sort((a,b)=>b.referralCount-a.referralCount).slice(0,5);
+    const expiring=users.filter(u=>u.trialDaysLeft!=null&&u.trialDaysLeft<=10).length;
+    const connectedRate=pct(s.totalAccounts,s.totalUsers);
+    const statusTone={ordered:'#6eb3f7',shipped:'#e0a742',delivered:'#4fbf8b',cancelled:'#f2665e',preorder:'#9c8cec'};
     el.innerHTML=
+      '<div class="hero">'+
+        '<div class="hero-card">'+
+          '<div class="hero-kicker">Live operator overview</div>'+
+          '<div class="hero-title">'+s.totalUsers.toLocaleString()+' accounts are tracking '+s.totalOrders.toLocaleString()+' orders through ShipmentScope.</div>'+
+          '<div class="hero-meta">'+
+            '<span class="hero-chip">'+s.signups7d+' signups this week</span>'+
+            '<span class="hero-chip">'+s.active7d+' active this week</span>'+
+            '<span class="hero-chip">'+connectedRate+'% connected email</span>'+
+            '<span class="hero-chip">'+expiring+' trials need attention</span>'+
+          '</div>'+
+        '</div>'+
+        '<div class="pulse-card">'+
+          '<div class="pulse-row"><span>Monthly order value</span><strong>'+money(s.valueThisMonth)+'</strong></div>'+
+          '<div class="pulse-row"><span>Orders this month</span><strong>'+s.ordersThisMonth.toLocaleString()+'</strong></div>'+
+          '<div class="pulse-row"><span>Avg orders/user</span><strong>'+s.avgOrdersPerUser+'</strong></div>'+
+        '</div>'+
+      '</div>'+
       '<div class="tiles">'+
-        '<div class="tile accent"><div class="tile-val">'+s.totalUsers.toLocaleString()+'</div><div class="tile-lbl">Total accounts</div><div class="tile-sub">'+s.signups7d+' new this week · '+s.signups30d+' this month</div></div>'+
-        '<div class="tile green"><div class="tile-val">'+s.ordersThisMonth.toLocaleString()+'</div><div class="tile-lbl">Orders tracked this month</div><div class="tile-sub">$'+s.valueThisMonth.toLocaleString()+' this month · '+s.totalOrders.toLocaleString()+' all-time</div></div>'+
-        '<div class="tile amber"><div class="tile-val">$'+s.totalValue.toLocaleString()+'</div><div class="tile-lbl">Order value tracked</div><div class="tile-sub">excludes cancelled</div></div>'+
-        '<div class="tile purple"><div class="tile-val">'+s.totalAccounts.toLocaleString()+'</div><div class="tile-lbl">Email accounts connected</div><div class="tile-sub">'+(s.totalInventoryItems||0).toLocaleString()+' inventory items tracked</div></div>'+
+        '<div class="tile accent"><div class="tile-ico"><i class="ti ti-users"></i></div><div class="tile-val">'+s.totalUsers.toLocaleString()+'</div><div class="tile-lbl">Total accounts</div><div class="tile-sub">'+s.signups7d+' new this week · '+s.signups30d+' this month</div></div>'+
+        '<div class="tile green"><div class="tile-ico"><i class="ti ti-package"></i></div><div class="tile-val">'+s.ordersThisMonth.toLocaleString()+'</div><div class="tile-lbl">Orders this month</div><div class="tile-sub">'+money(s.valueThisMonth)+' this month · '+s.totalOrders.toLocaleString()+' all-time</div></div>'+
+        '<div class="tile amber"><div class="tile-ico"><i class="ti ti-currency-dollar"></i></div><div class="tile-val">'+money(s.totalValue)+'</div><div class="tile-lbl">Order value tracked</div><div class="tile-sub">excludes cancelled</div></div>'+
+        '<div class="tile purple"><div class="tile-ico"><i class="ti ti-mail-check"></i></div><div class="tile-val">'+s.totalAccounts.toLocaleString()+'</div><div class="tile-lbl">Email accounts connected</div><div class="tile-sub">'+(s.totalInventoryItems||0).toLocaleString()+' inventory items tracked</div></div>'+
       '</div>'+
       '<div class="section-lbl">Engagement</div>'+
       '<div class="tiles">'+
-        '<div class="tile"><div class="tile-val">'+s.active7d.toLocaleString()+'</div><div class="tile-lbl">Active in last 7 days</div><div class="tile-sub">logged in at least once</div></div>'+
-        '<div class="tile"><div class="tile-val">'+(s.active30d||0).toLocaleString()+'</div><div class="tile-lbl">Active in last 30 days</div></div>'+
-        '<div class="tile"><div class="tile-val">'+s.avgOrdersPerUser+'</div><div class="tile-lbl">Avg orders per account</div></div>'+
+        '<div class="tile"><div class="tile-ico"><i class="ti ti-activity"></i></div><div class="tile-val">'+s.active7d.toLocaleString()+'</div><div class="tile-lbl">Active in last 7 days</div><div class="tile-sub">logged in at least once</div></div>'+
+        '<div class="tile"><div class="tile-ico"><i class="ti ti-calendar-stats"></i></div><div class="tile-val">'+(s.active30d||0).toLocaleString()+'</div><div class="tile-lbl">Active in last 30 days</div></div>'+
+        '<div class="tile"><div class="tile-ico"><i class="ti ti-chart-dots"></i></div><div class="tile-val">'+s.avgOrdersPerUser+'</div><div class="tile-lbl">Avg orders per account</div></div>'+
+      '</div>'+
+      '<div class="section-lbl">Signals</div>'+
+      '<div class="grid-2">'+
+        '<div class="panel"><h2>Orders by status</h2><div class="status-bars">'+
+          Object.entries(s.statusBreakdown).map(([k,v])=>'<div class="status-row" style="--tone:'+(statusTone[k]||'#7c5cff')+'"><span>'+k+'</span><div class="status-track"><div class="status-fill" style="width:'+pct(v,s.totalOrders)+'%"></div></div><strong>'+v.toLocaleString()+'</strong></div>').join('')+
+        '</div></div>'+
+        '<div class="panel"><h2>Top users</h2>'+
+          (topOrders.length?topOrders.map(u=>'<div class="leader-row"><div class="avatar">'+esc(initials(u.email))+'</div><div class="leader-main"><b>'+esc(u.email)+'</b><span>'+u.ordersThisMonth+' this month · '+money(u.spend)+' tracked</span></div><div class="leader-score">'+u.orders+' orders</div></div>').join(''):'<div class="sub">No order activity yet.</div>')+
+        '</div>'+
       '</div>'+
       '<div class="section-lbl">Users</div>'+
       '<div class="tbl-scroll"><table><tr><th>Email</th><th>Joined</th><th>Last login</th><th class="num">Orders</th><th class="num">This month</th><th class="num">Spend</th><th class="num">Inventory</th><th>Trial</th><th class="num">Referrals</th></tr>'+
-        (s.perUser||[]).map(u=>'<tr><td>'+esc(u.email)+'</td><td>'+fdate(u.createdAt)+'</td><td>'+fdate(u.lastLoginAt)+'</td><td class="num">'+u.orders+'</td><td class="num">'+u.ordersThisMonth+'</td><td class="num">$'+u.spend.toLocaleString()+'</td><td class="num">'+u.inventoryItems+'</td><td>'+trialPill(u.trialDaysLeft)+'</td><td class="num">'+u.referralCount+'</td></tr>').join('')+
+        users.map(u=>'<tr><td>'+esc(u.email)+'</td><td>'+fdate(u.createdAt)+'</td><td>'+fdate(u.lastLoginAt)+'</td><td class="num">'+u.orders+'</td><td class="num">'+u.ordersThisMonth+'</td><td class="num">'+money(u.spend)+'</td><td class="num">'+u.inventoryItems+'</td><td>'+trialPill(u.trialDaysLeft)+'</td><td class="num">'+u.referralCount+'</td></tr>').join('')+
       '</table></div>'+
-      '<div class="section-lbl">Orders by status</div>'+
-      '<div class="status-grid">'+
-        Object.entries(s.statusBreakdown).map(([k,v])=>'<div class="status-tile"><div class="status-val">'+v.toLocaleString()+'</div><div class="status-lbl">'+k+'</div></div>').join('')+
+      '<div class="section-lbl">Referrals</div>'+
+      '<div class="panel">'+
+        (topReferrals.some(u=>u.referralCount)?topReferrals.map(u=>'<div class="leader-row"><div class="avatar">'+esc(initials(u.email))+'</div><div class="leader-main"><b>'+esc(u.email)+'</b><span>'+esc(u.referralCode||'No code')+'</span></div><div class="leader-score">'+u.referralCount+' referrals</div></div>').join(''):'<div class="sub">No referrals completed yet.</div>')+
       '</div>'+
       '<div class="section-lbl">Latest feedback</div>'+
       ((s.feedback&&s.feedback.length)?s.feedback.map(f=>'<div class="fb"><div class="who">'+esc(f.email)+' · '+new Date(f.ts).toLocaleString()+'</div><div class="msg">'+esc(f.message)+'</div></div>').join(''):'<div class="sub">No feedback yet.</div>');
