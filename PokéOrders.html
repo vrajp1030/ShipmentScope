@@ -625,6 +625,17 @@
             </div>
             <div class="webhook-note">Add to Shopify: Settings → Notifications → Webhooks. This URL is unique to your account — sends order updates instantly without scanning.</div>
           </div>
+          <div class="setup-guide">
+            <div class="setup-guide-head">
+              <h5><i class="ti ti-help-circle"></i> Email setup guide</h5>
+              <div class="setup-tabs">
+                <button class="setup-tab on" id="setup-tab-gmail" onclick="switchEmailGuide('gmail')">Gmail</button>
+                <button class="setup-tab" id="setup-tab-icloud" onclick="switchEmailGuide('icloud')">iCloud</button>
+                <button class="setup-tab" id="setup-tab-outlook" onclick="switchEmailGuide('outlook')">Outlook</button>
+              </div>
+            </div>
+            <div id="email-setup-guide"></div>
+          </div>
           <div class="chart-card" style="margin-top:12px;">
             <h3>Recent syncs</h3>
             <div id="sync-history"></div>
@@ -722,6 +733,10 @@
         <div class="sm-row">
           <div class="sm-row-info"><h4>Desktop notifications</h4><p>Get a system notification even when the tab isn't focused</p></div>
           <div class="toggle" id="tog-desktop" onclick="toggleDesktopNotifications()"></div>
+        </div>
+        <div class="sm-row">
+          <div class="sm-row-info"><h4>Test notification</h4><p>Send yourself a sample ShipmentScope alert</p></div>
+          <button class="sm-btn" onclick="sendTestNotification()"><i class="ti ti-bell-ringing" style="font-size:13px;"></i> Test</button>
         </div>
         <div class="sm-row">
           <div class="sm-row-info"><h4>New order alerts</h4><p>Show a notification when a new order is detected</p></div>

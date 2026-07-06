@@ -1503,10 +1503,47 @@ const PROVIDER_PRESETS={
   outlook:{host:'outlook.office365.com',port:'993',placeholder:'you@outlook.com',note:'Use an app password if 2-step verification is on: account.microsoft.com → Security.'},
   custom:{host:'',port:'993',placeholder:'you@example.com',note:"Enter your mail provider's IMAP server and port."},
 };
+const EMAIL_SETUP_GUIDES={
+  gmail:{
+    title:'Gmail',
+    rows:[
+      ['Best option','Use Connect Gmail with Google after OAuth is configured.'],
+      ['No OAuth yet','Use a Google app password with IMAP enabled.'],
+      ['Server','imap.gmail.com · 993'],
+    ],
+  },
+  icloud:{
+    title:'iCloud Mail',
+    rows:[
+      ['Password type','Use an Apple app-specific password, not your Apple ID password.'],
+      ['Where','appleid.apple.com → Sign-In & Security → App-Specific Passwords.'],
+      ['Server','imap.mail.me.com · 993'],
+    ],
+  },
+  outlook:{
+    title:'Outlook',
+    rows:[
+      ['Password type','Use your mailbox password, or an app password if 2-step login is on.'],
+      ['Where','account.microsoft.com → Security.'],
+      ['Server','outlook.office365.com · 993'],
+    ],
+  },
+};
 function applyProviderPreset(){
   const p=PROVIDER_PRESETS[$('im-provider').value];
   $('im-host').value=p.host;$('im-port').value=p.port;
   $('im-note').textContent=p.note;$('im-email').placeholder=p.placeholder;
+  if(EMAIL_SETUP_GUIDES[$('im-provider').value])switchEmailGuide($('im-provider').value);
+}
+function switchEmailGuide(provider){
+  const guide=EMAIL_SETUP_GUIDES[provider]||EMAIL_SETUP_GUIDES.gmail;
+  document.querySelectorAll('.setup-tab').forEach(b=>b.classList.remove('on'));
+  const tab=$('setup-tab-'+provider);if(tab)tab.classList.add('on');
+  const el=$('email-setup-guide');if(!el)return;
+  el.innerHTML='<div class="setup-guide-card">'+
+    '<div class="setup-guide-title">'+escHtml(guide.title)+'</div>'+
+    guide.rows.map(([k,v])=>'<div class="setup-guide-row"><span>'+escHtml(k)+'</span><strong>'+escHtml(v)+'</strong></div>').join('')+
+  '</div>';
 }
 function showAddAccountForm(){
   $('im-email').value='';$('im-pass').value='';$('im-provider').value='icloud';
@@ -1541,7 +1578,7 @@ function renderAccountList(){
     const health=!m?'amber':(m.ok?'green':'red');
     const status=!m?'Never synced':(m.ok?'Synced '+timeAgo(m.lastSync):'Sync failed '+timeAgo(m.lastSync));
     return '<div class="srow"><div class="sico" style="background:var(--bg3);">'+providerIcon(a.provider)+'</div>'+
-    '<div class="sinfo"><h4><span class="acct-health-dot '+health+'" title="'+status+'"></span>'+escHtml(a.email)+'</h4><p>'+providerLabel(a.provider)+' · '+status+'</p></div>'+
+    '<div class="sinfo"><h4><span class="acct-health-dot '+health+'" title="'+status+'"></span>'+escHtml(a.email)+'</h4><p>'+providerLabel(a.provider)+' · '+status+' · encrypted on server</p></div>'+
     '<button class="sbtn" onclick="disconnectAccount(\''+a.email.replace(/'/g,"\\'")+'\')">Disconnect</button></div>';
   }).join('');
 }
@@ -1600,7 +1637,7 @@ async function saveImap(){
   fetch(API+'/api/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:h,port,email:e,password:p})}).then(r=>r.json()).then(d=>{if(!d.ok)showToast('Connected, but the test failed: '+d.message,'warn');}).catch(()=>{});
 }
 function disconnectAccount(email){
-  if(!confirm('Disconnect '+email+'? This stops syncing this account — your already-imported orders are kept.'))return;
+  if(!confirm('Disconnect '+email+'? This removes the saved email credential from ShipmentScope and stops syncing. Already-imported orders are kept.'))return;
   imapAccounts=imapAccounts.filter(a=>a.email!==email);
   renderAccountList();
   if(!imapAccounts.length)$('scan-btn').disabled=true;
@@ -2473,7 +2510,7 @@ function toggleDesktopNotifications(){
       if(perm==='granted'){
         settings['desktop']=true;saveSettings();
         $('tog-desktop').className='toggle on';
-        new Notification('ShipmentScope',{body:'Desktop notifications are on.'});
+        notifyDesktop('ShipmentScope alerts are on','You will get updates when synced orders change.',{tag:'shipment-alerts-on'});
       }else{
         showToast('Notification permission was denied in your browser','warn');
       }
@@ -2483,9 +2520,43 @@ function toggleDesktopNotifications(){
     $('tog-desktop').className='toggle';
   }
 }
-function notifyDesktop(title,body){
+function notifyDesktop(title,body,opts={}){
   if(!settings['desktop']||!('Notification' in window)||Notification.permission!=='granted')return;
-  try{new Notification(title,{body});}catch(_){}
+  try{
+    new Notification(title,{
+      body,
+      icon:'/assets/favicon.png',
+      badge:'/assets/favicon.png',
+      tag:opts.tag||'shipmentscope-order-update',
+      renotify:true,
+    });
+  }catch(_){}
+}
+function sendTestNotification(){
+  if(!('Notification' in window)){showToast('Desktop notifications are not supported here','warn');return;}
+  const fire=()=>notifyDesktop('ShipmentScope test alert','Notifications are working on this browser.',{tag:'shipment-test'});
+  if(Notification.permission==='granted'){
+    settings['desktop']=true;saveSettings();
+    const t=$('tog-desktop');if(t)t.className='toggle on';
+    fire();showToast('Test notification sent');
+    return;
+  }
+  Notification.requestPermission().then(perm=>{
+    if(perm==='granted'){
+      settings['desktop']=true;saveSettings();
+      const t=$('tog-desktop');if(t)t.className='toggle on';
+      fire();showToast('Desktop notifications enabled');
+    }else showToast('Notification permission was denied in your browser','warn');
+  });
+}
+function notificationCopyForOrders(items){
+  const counts={ordered:0,preorder:0,shipped:0,delivered:0,cancelled:0};
+  items.forEach(o=>{if(counts[o.status]!=null)counts[o.status]++;});
+  if(counts.cancelled)return ['Order cancelled',counts.cancelled+' order'+(counts.cancelled>1?'s were':' was')+' cancelled'];
+  if(counts.delivered)return ['Order delivered',counts.delivered+' order'+(counts.delivered>1?'s were':' was')+' delivered'];
+  if(counts.shipped)return ['Order shipped',counts.shipped+' order'+(counts.shipped>1?'s are':' is')+' on the way'];
+  if(counts.preorder)return ['Pre-order update',counts.preorder+' pre-order'+(counts.preorder>1?'s':'')+' updated'];
+  return ['New order update',items.length+' order'+(items.length>1?'s':'')+' updated in ShipmentScope'];
 }
 
 // ── APPEARANCE: accent color ──────────────────────────────────────
@@ -2602,18 +2673,19 @@ async function pollNewOrders(){
   try{
     const res=await fetch(API+'/api/poll');const data=await res.json();
     if(data.ok&&data.orders?.length){
-      let count=0,cancelledCount=0;
+      let count=0;
+      const applied=[];
       data.orders.forEach(d=>{
         if(isDuplicate(d))return;
         upsertOrder(d); // merges into an existing order (e.g. a shipped update) instead of always adding a new card
         count++;
-        if(d.status==='cancelled')cancelledCount++;
+        applied.push(d);
       });
       if(count>0){
         save();rOrders();rStats();
         if(settings['new-order'])showToast(''+count+' new order'+(count>1?'s':'')+' arrived!');
-        if(cancelledCount&&settings['cancel']) notifyDesktop('Order cancelled',cancelledCount+' order'+(cancelledCount>1?'s were':' was')+' cancelled');
-        else notifyDesktop('New order update',count+' order'+(count>1?'s':'')+' updated in ShipmentScope');
+        const note=notificationCopyForOrders(applied);
+        if(note[0]!=='Order cancelled'||settings['cancel'])notifyDesktop(note[0],note[1]);
       }
     }
   }catch(_){}
@@ -2987,6 +3059,7 @@ async function initAppAfterLogin(){
   const defaultSort=localStorage.getItem('ss_defaultSort');
   if(defaultSort&&$('sort-sel'))$('sort-sel').value=defaultSort;
   await loadAccountsFromServer();
+  switchEmailGuide('gmail');
   const whEl=$('webhook-url-display');
   if(whEl)whEl.textContent=location.origin+'/webhook/'+currentWebhookToken;
   checkServer();
