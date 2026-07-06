@@ -1136,6 +1136,10 @@ function isAuthorized(req) { return checkBasicAuth(req, SITE_PASSWORD); }
 // handing out access to aggregate usage stats. Disabled unless you set it.
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 function isAdminAuthorized(req) { return !!ADMIN_PASSWORD && checkBasicAuth(req, ADMIN_PASSWORD); }
+function isAdminRoute(req) {
+  const pathOnly = String(req.url||'').split('?')[0];
+  return req.method==='GET' && (pathOnly==='/admin' || pathOnly==='/api/admin/stats');
+}
 
 const server = http.createServer(async (req, res) => {
   res.req = req; // Node normally sets this itself once headers flush; set it early so sendJSON's gzip check can read req.headers before then.
@@ -1147,7 +1151,7 @@ const server = http.createServer(async (req, res) => {
 
   if(req.method==='OPTIONS'){res.writeHead(204,CORS);res.end();return;}
 
-  if(!isAuthorized(req)){
+  if(!isAuthorized(req) && !isAdminRoute(req)){
     res.writeHead(401, {'WWW-Authenticate':'Basic realm="ShipmentScope"', 'Content-Type':'text/plain'});
     res.end('Authentication required.');
     return;
