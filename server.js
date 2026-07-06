@@ -7,6 +7,24 @@ const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
 
+// Minimal .env loader (no dependency): populate process.env from a .env file
+// in this folder for any keys not already set in the real environment. Lets
+// you keep ENCRYPTION_KEY, SMTP_USER/PASS, NODE_ENV, etc. in a gitignored
+// .env on the server instead of exporting them by hand.
+(function loadDotEnv(){
+  try{
+    const p=path.join(__dirname,'.env');
+    if(!fs.existsSync(p))return;
+    for(const line of fs.readFileSync(p,'utf8').split('\n')){
+      const m=line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
+      if(!m)continue;
+      let v=m[2];
+      if((v.startsWith('"')&&v.endsWith('"'))||(v.startsWith("'")&&v.endsWith("'")))v=v.slice(1,-1);
+      if(process.env[m[1]]===undefined && v!=='') process.env[m[1]]=v;
+    }
+  }catch(_){}
+})();
+
 const PORT = 3876;
 
 // A single unexpected throw outside a route's own try/catch used to kill the
@@ -713,6 +731,78 @@ function sessionCookie(token, maxAgeSeconds, req){
   return `sc_session=${token}; HttpOnly; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax${secure}`;
 }
 
+// ── EMAIL 2FA + TRUSTED DEVICES ──────────────────────────────────────
+// Codes are emailed on signup and on login from an unrecognized device; once
+// verified, that browser gets a 30-day "trusted device" cookie so it isn't
+// asked again. Sending uses Gmail SMTP by default (set SMTP_USER + SMTP_PASS
+// to a Gmail address + app password). If SMTP isn't configured, codes are
+// printed to the server console so the flow still works in local dev.
+let nodemailer=null; try{ nodemailer=require('nodemailer'); }catch(_){}
+let _mailTransport=null, _mailTransportTried=false;
+function getMailTransport(){
+  if(_mailTransportTried) return _mailTransport;
+  _mailTransportTried=true;
+  if(nodemailer && process.env.SMTP_USER && process.env.SMTP_PASS){
+    const port=parseInt(process.env.SMTP_PORT)||465;
+    _mailTransport=nodemailer.createTransport({
+      host: process.env.SMTP_HOST||'smtp.gmail.com', port, secure: port===465,
+      auth:{ user:process.env.SMTP_USER, pass:process.env.SMTP_PASS },
+    });
+  }
+  return _mailTransport;
+}
+async function sendMail(to, subject, html){
+  const t=getMailTransport();
+  if(!t){ console.log(`\n[MAIL DEV MODE — set SMTP_USER/SMTP_PASS to send for real]\n  To: ${to}\n  ${subject}\n  ${html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()}\n`); return true; }
+  const from=process.env.SMTP_FROM || ('ShipmentScope <'+process.env.SMTP_USER+'>');
+  await t.sendMail({from,to,subject,html});
+  return true;
+}
+function twoFactorEmailHtml(code, purpose){
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:440px;margin:0 auto;padding:24px;color:#1a1a2e">
+    <h2 style="font-weight:600">Your ShipmentScope verification code</h2>
+    <p>Enter this code to ${purpose==='signup'?'finish creating your account':'sign in'}:</p>
+    <div style="font-size:30px;font-weight:800;letter-spacing:8px;background:#f3f0ff;color:#5b21b6;padding:16px;border-radius:12px;text-align:center;margin:16px 0">${code}</div>
+    <p style="color:#888;font-size:13px">This code expires in 10 minutes. If you didn't request it, you can safely ignore this email.</p>
+  </div>`;
+}
+function make2faCode(){ return String(crypto.randomInt(100000, 1000000)); }
+function hash2faCode(code){ return crypto.createHash('sha256').update(String(code)).digest('hex'); }
+
+// Short-lived pending auth challenges (in-memory; a 10-min code is fine to lose
+// on restart — the user just requests a new one).
+const pendingAuth = new Map(); // challengeToken -> {email, purpose, codeHash, expires, attempts, data}
+const CODE_TTL = 10*60*1000;
+function createChallenge(purpose, email, data){
+  const token=crypto.randomBytes(24).toString('hex');
+  const code=make2faCode();
+  pendingAuth.set(token, {email, purpose, codeHash:hash2faCode(code), expires:Date.now()+CODE_TTL, attempts:0, data});
+  return {token, code};
+}
+setInterval(()=>{ const now=Date.now(); for(const [k,v] of pendingAuth) if(v.expires<now) pendingAuth.delete(k); }, 60*1000);
+
+// Trusted-device tokens live (hashed) on the user record so they survive
+// restarts; the raw token is an HttpOnly cookie on the browser.
+const DEVICE_TTL = 30*24*60*60*1000;
+function deviceCookie(token, maxAgeSeconds, req){
+  const secure = isSecureRequest(req) ? '; Secure' : '';
+  return `sc_device=${token}; HttpOnly; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax${secure}`;
+}
+function isTrustedDevice(user, req){
+  const token=parseCookies(req.headers.cookie)['sc_device'];
+  if(!token || !Array.isArray(user.trustedDevices)) return false;
+  const h=hash2faCode(token), now=Date.now();
+  return user.trustedDevices.some(d=>d.tokenHash===h && d.expires>now);
+}
+// Mutates the user object (caller must saveUsers) and returns the raw token.
+function addTrustedDevice(user){
+  const token=crypto.randomBytes(24).toString('hex');
+  user.trustedDevices=(user.trustedDevices||[]).filter(d=>d.expires>Date.now());
+  user.trustedDevices.push({tokenHash:hash2faCode(token), expires:Date.now()+DEVICE_TTL, addedAt:new Date().toISOString()});
+  if(user.trustedDevices.length>20) user.trustedDevices=user.trustedDevices.slice(-20);
+  return token;
+}
+
 function sendJSON(res, data, status=200){
   const body = Buffer.from(JSON.stringify(data));
   const headers = {'Content-Type':'application/json', ...CORS};
@@ -1015,23 +1105,12 @@ li{margin-bottom:6px;}
       if(!password||password.length<8){sendJSON(res,{ok:false,message:'Password must be at least 8 characters'},400);return;}
       const users=loadUsers();
       if(users.some(u=>u.email.toLowerCase()===email.toLowerCase())){sendJSON(res,{ok:false,message:'An account with that email already exists'},409);return;}
-      const isFirstUser = users.length===0;
+      // Don't create the account yet — email a 6-digit code first and stash the
+      // would-be account fields in a short-lived challenge. verify-code creates it.
       const {salt,hash}=hashPassword(password);
-      const nowIso=new Date().toISOString();
-      // Record the user's acceptance of the Terms/Privacy at signup (the client
-      // gates account creation on a required consent checkbox). Stored as proof
-      // of when they agreed, plus which policy version.
-      const user={id:crypto.randomUUID(),email,salt,hash,webhookToken:crypto.randomBytes(16).toString('hex'),createdAt:nowIso,lastLoginAt:nowIso,acceptedTermsAt:acceptedTerms?nowIso:null,termsVersion:'2026-07-05'};
-      users.push(user);saveUsers(users);
-      // The very first account on a fresh deploy inherits any pre-existing
-      // single-user data (from before this multi-user update) — nobody else does.
-      if(isFirstUser){
-        const legacyOrders=loadOrders();
-        if(legacyOrders.length) saveOrdersFor(user.id, legacyOrders);
-      }
-      const token=createSession(user.id);
-      res.setHeader('Set-Cookie',sessionCookie(token, 30*24*60*60, req));
-      sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken});
+      const {token:challenge,code}=createChallenge('signup', email, {email,salt,hash,acceptedTerms:!!acceptedTerms});
+      sendMail(email,'Your ShipmentScope verification code',twoFactorEmailHtml(code,'signup')).catch(e=>console.log('2FA email failed:',e.message));
+      sendJSON(res,{ok:true,needsCode:true,challenge,email});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
   }
@@ -1045,12 +1124,72 @@ li{margin-bottom:6px;}
       if(email&&isRateLimited('login-email:'+email.toLowerCase(), 8, 15*60*1000)){sendJSON(res,{ok:false,message:'Too many attempts for this account. Try again in a few minutes.'},429);return;}
       const user=findUserByEmail(email);
       if(!user||!verifyPassword(password,user.salt,user.hash)){sendJSON(res,{ok:false,message:'Incorrect email or password'},401);return;}
-      const token=createSession(user.id);
-      const users=loadUsers();
-      const idx=users.findIndex(u=>u.id===user.id);
-      if(idx>-1){users[idx].lastLoginAt=new Date().toISOString();saveUsers(users);}
-      res.setHeader('Set-Cookie',sessionCookie(token, 30*24*60*60, req));
+      // A remembered device (verified within the last 30 days) skips the code.
+      if(isTrustedDevice(user, req)){
+        const token=createSession(user.id);
+        const users=loadUsers();
+        const idx=users.findIndex(u=>u.id===user.id);
+        if(idx>-1){users[idx].lastLoginAt=new Date().toISOString();saveUsers(users);}
+        res.setHeader('Set-Cookie',sessionCookie(token, 30*24*60*60, req));
+        sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken});
+        return;
+      }
+      // New/unknown device → email a code and require verification.
+      const {token:challenge,code}=createChallenge('login', email, {userId:user.id});
+      sendMail(user.email,'Your ShipmentScope verification code',twoFactorEmailHtml(code,'login')).catch(e=>console.log('2FA email failed:',e.message));
+      sendJSON(res,{ok:true,needsCode:true,challenge,email:user.email});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
+
+  // Verify a 6-digit code, then finish signup/login and remember this device.
+  if(req.method==='POST'&&req.url==='/api/auth/verify-code'){
+    try{
+      if(isRateLimited('verify-ip:'+clientIp(req), 30, 15*60*1000)){sendJSON(res,{ok:false,message:'Too many attempts. Try again in a few minutes.'},429);return;}
+      const {challenge,code}=JSON.parse(await readBody(req));
+      const p=pendingAuth.get(challenge);
+      if(!p || p.expires<Date.now()){ pendingAuth.delete(challenge); sendJSON(res,{ok:false,expired:true,message:'That code expired. Request a new one.'},400); return; }
+      p.attempts++;
+      if(p.attempts>5){ pendingAuth.delete(challenge); sendJSON(res,{ok:false,expired:true,message:'Too many incorrect codes. Start over.'},429); return; }
+      if(hash2faCode(String(code||''))!==p.codeHash){ sendJSON(res,{ok:false,message:'Incorrect code. '+(6-p.attempts)+' attempt'+(6-p.attempts===1?'':'s')+' left.'}); return; }
+      pendingAuth.delete(challenge);
+      const nowIso=new Date().toISOString();
+      let user, deviceToken;
+      if(p.purpose==='signup'){
+        const users=loadUsers();
+        if(users.some(u=>u.email.toLowerCase()===p.data.email.toLowerCase())){ sendJSON(res,{ok:false,message:'An account with that email already exists'},409); return; }
+        const isFirstUser=users.length===0;
+        user={id:crypto.randomUUID(),email:p.data.email,salt:p.data.salt,hash:p.data.hash,webhookToken:crypto.randomBytes(16).toString('hex'),createdAt:nowIso,lastLoginAt:nowIso,acceptedTermsAt:p.data.acceptedTerms?nowIso:null,termsVersion:'2026-07-05',trustedDevices:[]};
+        deviceToken=addTrustedDevice(user);
+        users.push(user);saveUsers(users);
+        if(isFirstUser){ const legacyOrders=loadOrders(); if(legacyOrders.length) saveOrdersFor(user.id, legacyOrders); }
+      }else{
+        const users=loadUsers();
+        const idx=users.findIndex(u=>u.id===p.data.userId);
+        if(idx<0){ sendJSON(res,{ok:false,message:'Account not found'},404); return; }
+        user=users[idx];
+        deviceToken=addTrustedDevice(user);
+        user.lastLoginAt=nowIso;
+        saveUsers(users);
+      }
+      const sessToken=createSession(user.id);
+      res.setHeader('Set-Cookie',[sessionCookie(sessToken, 30*24*60*60, req), deviceCookie(deviceToken, 30*24*60*60, req)]);
       sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
+
+  // Resend the code for an in-progress challenge.
+  if(req.method==='POST'&&req.url==='/api/auth/resend-code'){
+    try{
+      const {challenge}=JSON.parse(await readBody(req));
+      const p=pendingAuth.get(challenge);
+      if(!p){ sendJSON(res,{ok:false,expired:true,message:'That session expired. Start over.'},400); return; }
+      if(isRateLimited('resend:'+p.email.toLowerCase(), 4, 15*60*1000)){ sendJSON(res,{ok:false,message:'Too many code requests. Wait a few minutes.'},429); return; }
+      const code=make2faCode();
+      p.codeHash=hash2faCode(code); p.expires=Date.now()+CODE_TTL; p.attempts=0;
+      sendMail(p.email,'Your ShipmentScope verification code',twoFactorEmailHtml(code,p.purpose)).catch(e=>console.log('2FA email failed:',e.message));
+      sendJSON(res,{ok:true});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
   }
@@ -1243,7 +1382,9 @@ if(require.main === module){
   server.listen(PORT,'127.0.0.1',()=>{
     console.log(`\n  ⚪  ShipmentScope v3 running → http://localhost:${PORT}`);
     console.log(`  📡  Webhook endpoint → http://localhost:${PORT}/webhook`);
-    console.log(`  ⏱   Auto-polling every 5 minutes\n`);
+    console.log(`  ⏱   Auto-polling every 5 minutes`);
+    if(getMailTransport()) console.log(`  ✉️   Email 2FA: sending via ${process.env.SMTP_HOST||'smtp.gmail.com'}\n`);
+    else console.warn(`  ⚠️   Email 2FA: SMTP not configured — codes will only PRINT TO THIS CONSOLE.\n       Real users can't receive codes until you set SMTP_USER + SMTP_PASS (see .env.example).\n`);
     startAutoPoll();
   });
 }

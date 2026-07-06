@@ -36,6 +36,7 @@ let invStatusFil='all',invPage=1,invEditCat='singles';
 let serverOnline=false;
 let cY=new Date().getFullYear(),cM=new Date().getMonth(),cSel=new Date().getDate();
 let charts=[],dashCharts=[],invCharts=[],currentEmailId=null,pollTimerId=null;
+let pendingChallenge=null; // in-progress email-2FA challenge token
 
 const $=id=>document.getElementById(id);
 // Quota-safe localStorage write. Order/inventory records can carry large
@@ -2717,6 +2718,9 @@ function cmdkOpenInv(id){closeCommandPalette();sw('inventory');const x=inventory
 let authMode='login', currentUserEmail='', currentWebhookToken='';
 function setAuthMode(mode){
   authMode=mode;
+  // Always land on the credential step (not a leftover code step).
+  pendingChallenge=null;
+  if($('auth-code-step')){$('auth-code-step').style.display='none';$('auth-cred-step').style.display='block';}
   $('auth-tab-login').classList.toggle('on',mode==='login');
   $('auth-tab-signup').classList.toggle('on',mode==='signup');
   $('auth-submit-btn').textContent=mode==='login'?'Log in':'Create account';
@@ -2742,11 +2746,62 @@ async function submitAuth(){
     const res=await fetch(API+'/api/auth/'+authMode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,hp_field,acceptedTerms})});
     const data=await res.json();
     if(!data.ok){errEl.textContent=data.message||'Something went wrong.';errEl.style.display='block';return;}
+    // New device (or new signup) → a 6-digit code was emailed; go verify it.
+    if(data.needsCode){ pendingChallenge=data.challenge; showCodeStep(data.email); return; }
+    // Trusted device → straight in.
     currentUserEmail=data.email;currentWebhookToken=data.webhookToken;
     showApp();
     await initAppAfterLogin();
   }catch(e){errEl.textContent='Server offline — is node server.js running?';errEl.style.display='block';
   }finally{ btn.disabled=false; btn.textContent=prevText; }
+}
+// ── EMAIL 2FA: code-entry step ────────────────────────────────────
+function showCodeStep(email){
+  $('auth-cred-step').style.display='none';
+  $('auth-code-step').style.display='block';
+  $('auth-code-email').textContent=email||'';
+  $('auth-error').style.display='none';
+  const inp=$('auth-code');inp.value='';setTimeout(()=>inp.focus(),50);
+}
+function backToCredStep(){
+  pendingChallenge=null;
+  $('auth-code-step').style.display='none';
+  $('auth-cred-step').style.display='block';
+  $('auth-error').style.display='none';
+}
+async function verifyCode(){
+  const code=$('auth-code').value.trim();
+  const errEl=$('auth-error');errEl.style.display='none';
+  if(code.length!==6){errEl.textContent='Enter the 6-digit code.';errEl.style.display='block';return;}
+  if(!pendingChallenge){backToCredStep();return;}
+  const btn=$('auth-verify-btn'),prev=btn.textContent;
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;display:inline-block;"></i> '+prev;
+  try{
+    const res=await fetch(API+'/api/auth/verify-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({challenge:pendingChallenge,code})});
+    const data=await res.json();
+    if(!data.ok){
+      errEl.textContent=data.message||'Incorrect code.';errEl.style.display='block';
+      if(data.expired){pendingChallenge=null;setTimeout(backToCredStep,1500);}
+      return;
+    }
+    currentUserEmail=data.email;currentWebhookToken=data.webhookToken;
+    pendingChallenge=null;
+    showApp();
+    await initAppAfterLogin();
+  }catch(e){errEl.textContent='Server offline — try again.';errEl.style.display='block';
+  }finally{ btn.disabled=false; btn.textContent=prev; }
+}
+async function resendCode(){
+  if(!pendingChallenge)return;
+  const errEl=$('auth-error');errEl.style.display='none';
+  const link=$('auth-resend-link');const prev=link.textContent;link.textContent='sending…';
+  try{
+    const res=await fetch(API+'/api/auth/resend-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({challenge:pendingChallenge})});
+    const data=await res.json();
+    if(data.ok){link.textContent='code resent ✓';}
+    else{errEl.textContent=data.message||'Could not resend.';errEl.style.display='block';link.textContent=prev;if(data.expired){pendingChallenge=null;setTimeout(backToCredStep,1500);}}
+  }catch(e){link.textContent=prev;}
+  setTimeout(()=>{if(link.textContent==='code resent ✓')link.textContent=prev;},4000);
 }
 async function logout(){
   await fetch(API+'/api/auth/logout',{method:'POST'}).catch(()=>{});

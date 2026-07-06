@@ -188,18 +188,30 @@
       <div class="hdr-title"><span class="brand-dark">Shipment</span><span class="brand-accent">Scope</span></div>
     </div>
     <p class="auth-tagline">Track with clarity. Deliver with confidence.</p>
-    <div class="auth-tabs">
-      <button class="auth-tab on" id="auth-tab-login" onclick="setAuthMode('login')">Log in</button>
-      <button class="auth-tab" id="auth-tab-signup" onclick="setAuthMode('signup')">Sign up</button>
-    </div>
     <div class="auth-error" id="auth-error" style="display:none;"></div>
-    <!-- Honeypot: invisible to real people, but simple signup bots that blindly fill every field trip it -->
-    <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true"><input id="hp-field" type="text" tabindex="-1" autocomplete="off"/></div>
-    <div class="mfg"><label>Email</label><input id="auth-email" type="email" placeholder="you@example.com" autocomplete="username"/></div>
-    <div class="mfg"><label>Password</label><input id="auth-password" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitAuth()"/></div>
-    <p class="auth-hint" id="auth-hint" style="display:none;">At least 8 characters. This is your own private account — nobody else can see your orders or connected email accounts.</p>
-    <label class="auth-consent" id="auth-consent-row" style="display:none;"><input type="checkbox" id="auth-consent"/><span>I agree to the <a href="/terms" target="_blank">Terms of Service</a> &amp; <a href="/privacy" target="_blank">Privacy Policy</a>, and understand ShipmentScope is a <strong>beta</strong> provided “as is” — bugs, downtime, and data loss can occur.</span></label>
-    <button class="add-btn" style="width:100%;justify-content:center;margin-top:8px;" onclick="submitAuth()" id="auth-submit-btn">Log in</button>
+    <!-- STEP 1: email + password -->
+    <div id="auth-cred-step">
+      <div class="auth-tabs">
+        <button class="auth-tab on" id="auth-tab-login" onclick="setAuthMode('login')">Log in</button>
+        <button class="auth-tab" id="auth-tab-signup" onclick="setAuthMode('signup')">Sign up</button>
+      </div>
+      <!-- Honeypot: invisible to real people, but simple signup bots that blindly fill every field trip it -->
+      <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true"><input id="hp-field" type="text" tabindex="-1" autocomplete="off"/></div>
+      <div class="mfg"><label>Email</label><input id="auth-email" type="email" placeholder="you@example.com" autocomplete="username"/></div>
+      <div class="mfg"><label>Password</label><input id="auth-password" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitAuth()"/></div>
+      <p class="auth-hint" id="auth-hint" style="display:none;">At least 8 characters. This is your own private account — nobody else can see your orders or connected email accounts.</p>
+      <label class="auth-consent" id="auth-consent-row" style="display:none;"><input type="checkbox" id="auth-consent"/><span>I agree to the <a href="/terms" target="_blank">Terms of Service</a> &amp; <a href="/privacy" target="_blank">Privacy Policy</a>, and understand ShipmentScope is a <strong>beta</strong> provided “as is” — bugs, downtime, and data loss can occur.</span></label>
+      <button class="add-btn" style="width:100%;justify-content:center;margin-top:8px;" onclick="submitAuth()" id="auth-submit-btn">Log in</button>
+    </div>
+    <!-- STEP 2: 6-digit email code -->
+    <div id="auth-code-step" style="display:none;">
+      <div class="auth-code-icon"><i class="ti ti-mail-check"></i></div>
+      <p class="auth-code-lead">Enter the 6-digit code we emailed to <strong id="auth-code-email"></strong>.</p>
+      <input id="auth-code" class="auth-code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" oninput="this.value=this.value.replace(/[^0-9]/g,'');if(this.value.length===6)verifyCode();" onkeydown="if(event.key==='Enter')verifyCode()"/>
+      <button class="add-btn" style="width:100%;justify-content:center;margin-top:12px;" onclick="verifyCode()" id="auth-verify-btn">Verify &amp; continue</button>
+      <p class="auth-hint" style="text-align:center;margin-top:12px;">Didn't get it? Check spam, or <a href="#" onclick="resendCode();return false;" id="auth-resend-link">resend the code</a>.</p>
+      <p class="auth-hint" style="text-align:center;margin-top:4px;"><a href="#" onclick="backToCredStep();return false;">← Use a different account</a></p>
+    </div>
   </div>
 </div>
 
