@@ -197,11 +197,16 @@
       </div>
       <!-- Honeypot: invisible to real people, but simple signup bots that blindly fill every field trip it -->
       <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true"><input id="hp-field" type="text" tabindex="-1" autocomplete="off"/></div>
+      <div class="mfg auth-beta-card" id="auth-beta-row" style="display:none;">
+        <div class="auth-beta-top"><i class="ti ti-ticket"></i><span>Private beta access</span></div>
+        <label>Beta access or referral code</label>
+        <input id="auth-beta-code" placeholder="Enter your code" autocomplete="off"/>
+        <p>ShipmentScope is invite-only right now. Use the beta code or a member referral code to create your account.</p>
+      </div>
       <div class="mfg"><label>Email</label><input id="auth-email" type="email" placeholder="you@example.com" autocomplete="username" oninput="renderSignupPasswordRules()"/></div>
       <div class="mfg"><label>Password</label><input id="auth-password" type="password" placeholder="••••••••" autocomplete="current-password" oninput="renderSignupPasswordRules()" onkeydown="if(event.key==='Enter')submitAuth()"/></div>
       <p class="auth-hint" id="auth-hint" style="display:none;">Use a strong password. This is your own private account — nobody else can see your orders or connected email accounts.</p>
       <div class="auth-pw-rules" id="auth-pw-rules" style="display:none;" aria-live="polite"></div>
-      <div class="mfg" id="auth-beta-row" style="display:none;"><label>Beta access or referral code</label><input id="auth-beta-code" placeholder="e.g. SHIP-A1B2C3" autocomplete="off"/><p class="auth-hint" style="margin-top:6px;">ShipmentScope is in private beta — 10-week free trial. Got a friend's referral code? You'll both earn bonus days.</p></div>
       <label class="auth-consent" id="auth-consent-row" style="display:none;"><input type="checkbox" id="auth-consent"/><span>I agree to the <a href="/terms" target="_blank">Terms of Service</a> &amp; <a href="/privacy" target="_blank">Privacy Policy</a>, and understand ShipmentScope is a <strong>beta</strong> provided “as is” — bugs, downtime, and data loss can occur.</span></label>
       <button class="add-btn" style="width:100%;justify-content:center;margin-top:8px;" onclick="submitAuth()" id="auth-submit-btn">Log in</button>
     </div>
