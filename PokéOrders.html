@@ -172,7 +172,10 @@
     <button class="landing-btn-primary" onclick="goToAuth('signup')">Get started free</button>
   </div>
 
-  <div class="landing-footer">© ShipmentScope · Track with clarity. Deliver with confidence. · <a href="/privacy" target="_blank" class="footer-link">Privacy</a> · <a href="/terms" target="_blank" class="footer-link">Terms</a></div>
+  <div class="landing-footer">
+    <div>© ShipmentScope · Beta · <a href="/privacy" target="_blank" class="footer-link">Privacy</a> · <a href="/terms" target="_blank" class="footer-link">Terms</a> · <a href="mailto:vrajp1030@gmail.com" class="footer-link">Contact</a></div>
+    <div class="footer-disclaimer">ShipmentScope is an independent service and is not affiliated with, endorsed by, or sponsored by Nintendo, The Pokémon Company, or any shipping carrier (UPS, USPS, FedEx, DHL, or Amazon). All product names, logos, and brands are the property of their respective owners.</div>
+  </div>
 </div>
 
 <!-- AUTH SCREEN — shown when the visitor clicks Log in / Sign up from the landing page -->
@@ -195,8 +198,8 @@
     <div class="mfg"><label>Email</label><input id="auth-email" type="email" placeholder="you@example.com" autocomplete="username"/></div>
     <div class="mfg"><label>Password</label><input id="auth-password" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitAuth()"/></div>
     <p class="auth-hint" id="auth-hint" style="display:none;">At least 8 characters. This is your own private account — nobody else can see your orders or connected email accounts.</p>
+    <label class="auth-consent" id="auth-consent-row" style="display:none;"><input type="checkbox" id="auth-consent"/><span>I agree to the <a href="/terms" target="_blank">Terms of Service</a> &amp; <a href="/privacy" target="_blank">Privacy Policy</a>, and understand ShipmentScope is a <strong>beta</strong> provided “as is” — bugs, downtime, and data loss can occur.</span></label>
     <button class="add-btn" style="width:100%;justify-content:center;margin-top:8px;" onclick="submitAuth()" id="auth-submit-btn">Log in</button>
-    <p class="auth-hint" id="auth-legal-hint" style="display:none;text-align:center;margin-top:10px;">By creating an account you agree to our <a href="/terms" target="_blank">Terms</a> and <a href="/privacy" target="_blank">Privacy Policy</a>.</p>
   </div>
 </div>
 

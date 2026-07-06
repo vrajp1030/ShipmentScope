@@ -2721,7 +2721,8 @@ function setAuthMode(mode){
   $('auth-tab-signup').classList.toggle('on',mode==='signup');
   $('auth-submit-btn').textContent=mode==='login'?'Log in':'Create account';
   $('auth-hint').style.display=mode==='signup'?'block':'none';
-  $('auth-legal-hint').style.display=mode==='signup'?'block':'none';
+  $('auth-consent-row').style.display=mode==='signup'?'flex':'none';
+  if($('auth-consent'))$('auth-consent').checked=false; // re-consent each time signup is opened
   $('auth-error').style.display='none';
 }
 function showLandingScreen(){$('landing-screen').style.display='block';$('auth-screen').style.display='none';document.querySelector('.app').style.display='none';}
@@ -2733,10 +2734,12 @@ async function submitAuth(){
   const hp_field=($('hp-field')||{}).value||'';
   const errEl=$('auth-error');errEl.style.display='none';
   if(!email||!password){errEl.textContent='Enter your email and password.';errEl.style.display='block';return;}
+  if(authMode==='signup'&&!$('auth-consent').checked){errEl.textContent='Please agree to the Terms & Privacy Policy to create an account.';errEl.style.display='block';return;}
   const btn=$('auth-submit-btn'), prevText=btn.textContent;
   btn.disabled=true; btn.innerHTML='<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;display:inline-block;"></i> '+prevText;
   try{
-    const res=await fetch(API+'/api/auth/'+authMode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,hp_field})});
+    const acceptedTerms=authMode==='signup'&&!!$('auth-consent').checked;
+    const res=await fetch(API+'/api/auth/'+authMode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,hp_field,acceptedTerms})});
     const data=await res.json();
     if(!data.ok){errEl.textContent=data.message||'Something went wrong.';errEl.style.display='block';return;}
     currentUserEmail=data.email;currentWebhookToken=data.webhookToken;

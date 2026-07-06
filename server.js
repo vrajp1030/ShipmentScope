@@ -884,7 +884,7 @@ li{margin-bottom:6px;}
 </style></head><body>
 <a class="back" href="/">← Back to ShipmentScope</a>
 <h1>Terms of Service</h1>
-<div class="updated">Last updated: July 2, 2026</div>
+<div class="updated">Last updated: July 5, 2026</div>
 
 <h2>The service</h2>
 <p>ShipmentScope is currently a free, beta service that helps you track online orders by connecting to your email account and scanning it for order-related messages. It is provided "as is," without warranty of any kind — features, availability, and pricing may change as the product develops.</p>
@@ -903,10 +903,22 @@ li{margin-bottom:6px;}
 <p>When you connect an email account, ShipmentScope searches your inbox for messages whose subject line matches order, shipping, tracking, or receipt-related keywords, then extracts order details from ones that look like a real order. See the <a href="/privacy">Privacy Policy</a> for details on what's stored and how.</p>
 
 <h2>No warranty</h2>
-<p>ShipmentScope does not guarantee that order or tracking information will always be complete, accurate, or up to date — it depends on what your retailers actually send by email. We are not liable for missed deliveries, pricing errors, or decisions made based on data shown in the app.</p>
+<p>ShipmentScope does not guarantee that order or tracking information will always be complete, accurate, or up to date — it depends on what your retailers actually send by email. It also does not guarantee uptime or availability, and may go offline or change at any time.</p>
+
+<h2>Limitation of liability</h2>
+<p>To the maximum extent permitted by law, ShipmentScope and its operator are not liable for any lost profits, missed purchases or deliveries, lost or corrupted data, or any indirect, incidental, special, or consequential damages arising from your use of — or inability to use — the service. The service is provided on a beta, "as is" and "as available" basis, without warranties of any kind.</p>
+
+<h2>Ownership &amp; restrictions</h2>
+<p>ShipmentScope — including its software, design, and branding — belongs to its operator. You may not copy, modify, reverse-engineer, scrape, resell, redistribute, or create derivative works from the service, except where such restrictions are prohibited by law.</p>
+
+<h2>Not affiliated</h2>
+<p>ShipmentScope is an independent service. It is not affiliated with, endorsed by, or sponsored by Nintendo, The Pokémon Company, or any shipping carrier (including UPS, USPS, FedEx, DHL, or Amazon). All third-party product names, logos, and trademarks are the property of their respective owners and are used for identification only.</p>
 
 <h2>Termination</h2>
 <p>You can delete your account at any time from Settings → Account, which permanently erases your data. We may suspend or terminate accounts that violate these terms.</p>
+
+<h2>Governing law</h2>
+<p>These terms are governed by the laws of the State of Delaware, United States, without regard to its conflict-of-laws rules, and any disputes will be handled in the courts located there.</p>
 
 <h2>Changes to these terms</h2>
 <p>If these terms change, we'll update the "Last updated" date above.</p>
@@ -994,7 +1006,7 @@ li{margin-bottom:6px;}
   if(req.method==='POST'&&req.url==='/api/auth/signup'){
     try{
       if(isRateLimited('signup:'+clientIp(req), 5, 60*60*1000)){sendJSON(res,{ok:false,message:'Too many signup attempts from this connection. Try again later.'},429);return;}
-      const {email,password,hp_field}=JSON.parse(await readBody(req));
+      const {email,password,hp_field,acceptedTerms}=JSON.parse(await readBody(req));
       // Honeypot: a hidden form field real users never fill in. Bots that
       // auto-fill every field trip this — pretend success without creating
       // anything, so the bot doesn't learn to look for a different signal.
@@ -1006,7 +1018,10 @@ li{margin-bottom:6px;}
       const isFirstUser = users.length===0;
       const {salt,hash}=hashPassword(password);
       const nowIso=new Date().toISOString();
-      const user={id:crypto.randomUUID(),email,salt,hash,webhookToken:crypto.randomBytes(16).toString('hex'),createdAt:nowIso,lastLoginAt:nowIso};
+      // Record the user's acceptance of the Terms/Privacy at signup (the client
+      // gates account creation on a required consent checkbox). Stored as proof
+      // of when they agreed, plus which policy version.
+      const user={id:crypto.randomUUID(),email,salt,hash,webhookToken:crypto.randomBytes(16).toString('hex'),createdAt:nowIso,lastLoginAt:nowIso,acceptedTermsAt:acceptedTerms?nowIso:null,termsVersion:'2026-07-05'};
       users.push(user);saveUsers(users);
       // The very first account on a fresh deploy inherits any pre-existing
       // single-user data (from before this multi-user update) — nobody else does.
