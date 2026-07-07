@@ -342,6 +342,10 @@
       <div class="dash-grid2">
         <div class="dash-main2">
           <div class="onboard-card" id="onboard-card"></div>
+          <div class="chart-card" id="attention-card" style="display:none;margin-bottom:14px;">
+            <h3>Needs attention</h3>
+            <div id="attention-list"></div>
+          </div>
           <div class="dash-stat-row">
             <div class="dtile"><div class="dt-ico tone-purple"><i class="ti ti-package"></i></div><div class="dt-lbl">Total orders</div><div class="dt-val" id="d-total">0</div><div class="mt-bar"><div class="mt-bar-fill" id="d-total-bar" style="background:var(--accent);"></div></div><div class="dt-delta" id="d-total-delta"></div></div>
             <div class="dtile"><div class="dt-ico tone-blue"><i class="ti ti-truck-delivery"></i></div><div class="dt-lbl">In transit</div><div class="dt-val" id="d-sh">0</div><div class="mt-bar"><div class="mt-bar-fill" id="d-sh-bar" style="background:var(--blue);"></div></div><div class="dt-delta" id="d-sh-delta"></div></div>
@@ -557,6 +561,11 @@
 
     <!-- EMAILS -->
     <div id="pane-emails" class="pane">
+      <div class="chart-card ignored-card">
+        <h3>Skipped email review <button class="rb-btn" style="float:right;" onclick="loadIgnoredEmails(true)"><i class="ti ti-refresh" style="font-size:13px;"></i> Refresh</button></h3>
+        <p class="dash-sub" style="margin-bottom:10px;">ShipmentScope keeps food, grocery, travel, subscriptions, and weak matches out of your orders.</p>
+        <div id="ignored-email-list"></div>
+      </div>
       <div class="filter-section">
         <div class="filter-group">
           <div class="filter-label">Status</div>
@@ -798,12 +807,32 @@
           <button class="sm-btn" onclick="sendTestNotification()"><i class="ti ti-bell-ringing" style="font-size:13px;"></i> Test</button>
         </div>
         <div class="sm-row">
+          <div class="sm-row-info"><h4>Email alerts from ShipmentScope</h4><p>Email me when auto-sync finds new order activity</p></div>
+          <div class="toggle" id="tog-email-alerts" onclick="toggleNotifyPref('email')"></div>
+        </div>
+        <div class="sm-row">
+          <div class="sm-row-info"><h4>New order email alerts</h4><p>Include newly detected orders and pre-orders in ShipmentScope emails</p></div>
+          <div class="toggle on" id="tog-notify-ordered" onclick="toggleNotifyPref('ordered')"></div>
+        </div>
+        <div class="sm-row">
           <div class="sm-row-info"><h4>New order alerts</h4><p>Show a notification when a new order is detected</p></div>
           <div class="toggle on" id="tog-new-order" onclick="toggleSetting('new-order')"></div>
         </div>
         <div class="sm-row">
+          <div class="sm-row-info"><h4>Shipment alerts</h4><p>Notify me when an order ships or tracking appears</p></div>
+          <div class="toggle on" id="tog-notify-shipped" onclick="toggleNotifyPref('shipped')"></div>
+        </div>
+        <div class="sm-row">
+          <div class="sm-row-info"><h4>Delivery alerts</h4><p>Notify me when a package is marked delivered</p></div>
+          <div class="toggle on" id="tog-notify-delivered" onclick="toggleNotifyPref('delivered')"></div>
+        </div>
+        <div class="sm-row">
           <div class="sm-row-info"><h4>Cancellation alerts</h4><p>Alert me when an order gets cancelled</p></div>
           <div class="toggle on" id="tog-cancel" onclick="toggleSetting('cancel')"></div>
+        </div>
+        <div class="sm-row">
+          <div class="sm-row-info"><h4>Cancellation email alerts</h4><p>Include cancelled orders in ShipmentScope emails</p></div>
+          <div class="toggle on" id="tog-notify-cancelled" onclick="toggleNotifyPref('cancelled')"></div>
         </div>
         <div class="sm-row">
           <div class="sm-row-info"><h4>Duplicate warnings</h4><p>Warn me before importing a duplicate order</p></div>

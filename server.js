@@ -294,11 +294,19 @@ function classifyEmail(subject, fromAddr, body) {
   const tracking = extractTracking(body);
   const carrier  = detectCarrier(tracking);
   const cat      = detectCategory(subject, body);
+  let confidence = 58;
+  if(getAllowedStore(fromAddr, body)) confidence += 18;
+  if(orderNum) confidence += 10;
+  if(tracking) confidence += 12;
+  if(price) confidence += 8;
+  if(/\b(order|shipment|package|tracking|delivered|purchase)\b/i.test(subject)) confidence += 5;
+  confidence = Math.max(40, Math.min(99, confidence));
   return {
     status, store, price, orderNum, tracking,
     carrier: carrier?.name || '',
     trackingUrl: carrier?.url || '',
     cat,
+    confidence,
   };
 }
 
@@ -409,9 +417,10 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const ORDERS_DIR = path.join(DATA_DIR, 'orders');
 const ACCOUNTS_DIR = path.join(DATA_DIR, 'accounts');
 const INVENTORY_DIR = path.join(DATA_DIR, 'inventory');
+const IGNORED_DIR = path.join(DATA_DIR, 'ignored');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 function ensureDir(d){ if(!fs.existsSync(d)) fs.mkdirSync(d,{recursive:true}); }
-ensureDir(DATA_DIR); ensureDir(ORDERS_DIR); ensureDir(ACCOUNTS_DIR); ensureDir(INVENTORY_DIR);
+ensureDir(DATA_DIR); ensureDir(ORDERS_DIR); ensureDir(ACCOUNTS_DIR); ensureDir(INVENTORY_DIR); ensureDir(IGNORED_DIR);
 
 // ── Password hashing (Node's built-in scrypt — no extra dependency needed) ──
 function hashPassword(password, salt) {
@@ -483,6 +492,17 @@ function loadUsers(){ try{ if(fs.existsSync(USERS_FILE)) return JSON.parse(fs.re
 function saveUsers(users){ fs.writeFileSync(USERS_FILE, JSON.stringify(users,null,2)); }
 function findUserByEmail(email){ return loadUsers().find(u=>u.email.toLowerCase()===String(email||'').toLowerCase()); }
 function findUserById(id){ return loadUsers().find(u=>u.id===id); }
+const DEFAULT_NOTIFY_PREFS = {
+  email:false,
+  ordered:true,
+  preorder:true,
+  shipped:true,
+  delivered:true,
+  cancelled:true,
+  delayed:true,
+};
+function userNotifyPrefs(user){ return {...DEFAULT_NOTIFY_PREFS, ...(user&&user.notifyPrefs||{})}; }
+function publicNotifyPrefs(user){ return userNotifyPrefs(user); }
 
 // ── RATE LIMITING (in-memory, per-IP + per-email) ──────────────────
 // Protects login/signup from brute-force password guessing and mass fake
@@ -601,6 +621,32 @@ function loadInventoryFor(userId){
 function saveInventoryFor(userId, items){
   try{ fs.writeFileSync(inventoryFileFor(userId), JSON.stringify(items,null,2)); return true; }
   catch(e){ console.log('Could not save inventory for user:', e.message); return false; }
+}
+
+// ── Per-user skipped email review ──
+function ignoredFileFor(userId){ return path.join(IGNORED_DIR, userId+'.json'); }
+function loadIgnoredFor(userId){
+  try{ const f=ignoredFileFor(userId); if(fs.existsSync(f)) return JSON.parse(fs.readFileSync(f,'utf8'))||[]; }catch(_){}
+  return [];
+}
+function saveIgnoredFor(userId, items){
+  try{ fs.writeFileSync(ignoredFileFor(userId), JSON.stringify((items||[]).slice(0,300),null,2)); return true; }
+  catch(e){ console.log('Could not save skipped emails for user:', e.message); return false; }
+}
+function recordIgnoredEmail(userId, item){
+  if(!userId || !item) return;
+  const all=loadIgnoredFor(userId);
+  const key=item.emailId || crypto.createHash('md5').update((item.from||'')+'|'+(item.subject||'')+'|'+(item.date||'')).digest('hex');
+  if(all.some(x=>x.key===key)) return;
+  all.unshift({
+    key,
+    ts:new Date().toISOString(),
+    date:item.date||'',
+    from:String(item.from||'').slice(0,180),
+    subject:String(item.subject||'').slice(0,180),
+    reason:String(item.reason||'Skipped').slice(0,120),
+  });
+  saveIgnoredFor(userId, all);
 }
 
 // ── Per-user IMAP account storage (passwords encrypted at rest) ──
@@ -728,6 +774,40 @@ function pushToUserBuffer(userId, found){
   buf.push(...found);
   if(buf.length>50) newOrdersBuffers[userId] = buf.slice(-50);
 }
+function orderNotificationHtml(items){
+  const rows=items.slice(0,8).map(o=>`<tr>
+    <td style="padding:10px 0;border-bottom:1px solid #eeeafc;">
+      <div style="font-weight:800;color:#27213f;">${String(o.name||'Order').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])).slice(0,120)}</div>
+      <div style="font-size:12px;color:#6f6a85;margin-top:3px;">${String(o.store||'Store').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))} · ${SLABEL(o.status)}</div>
+    </td>
+  </tr>`).join('');
+  return `<!doctype html><html><body style="margin:0;background:#f5f3ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#18142f;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:28px 14px;background:#f5f3ff;"><tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:white;border:1px solid #e7e2ff;border-radius:18px;overflow:hidden;">
+        <tr><td style="padding:22px 26px;background:linear-gradient(135deg,#24124f,#5b21b6 60%,#8b5cf6);color:white;">
+          <div style="font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:#d9d1ff;font-weight:800;">ShipmentScope</div>
+          <div style="font-size:24px;font-weight:900;margin-top:8px;">${items.length} order update${items.length===1?'':'s'} found</div>
+        </td></tr>
+        <tr><td style="padding:22px 26px;">
+          <p style="margin:0 0 12px;color:#332f4d;line-height:1.55;">ShipmentScope found new merchandise order activity from your connected inbox.</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>
+          <p style="margin:18px 0 0;font-size:12px;color:#8a859d;line-height:1.5;">You can change these alerts in ShipmentScope Settings.</p>
+        </td></tr>
+      </table>
+    </td></tr></table>
+  </body></html>`;
+}
+function SLABEL(status){ return ({ordered:'Ordered',preorder:'Pre-order',shipped:'Shipped',delivered:'Delivered',cancelled:'Cancelled'}[status]||'Updated'); }
+function maybeSendOrderEmailNotification(userId, found){
+  if(!found.length) return;
+  const user=findUserById(userId);
+  if(!user) return;
+  const prefs=userNotifyPrefs(user);
+  if(!prefs.email) return;
+  const wanted=found.filter(o=>prefs[o.status]!==false);
+  if(!wanted.length) return;
+  sendMail(user.email,'ShipmentScope found '+wanted.length+' order update'+(wanted.length===1?'':'s'),orderNotificationHtml(wanted)).catch(e=>console.log('Order notification email failed:',e.message));
+}
 
 const googleOAuthStates = new Map(); // state -> {userId, expires}
 function requestOrigin(req){
@@ -786,6 +866,7 @@ async function fetchGoogleEmail(accessToken){
 
 async function syncImap(config, sinceDate, scanDays) {
   const { host, port, email, password } = config;
+  const ownerUserId = config.__userId || null;
   const auth = { user: email };
   if(config.provider==='gmail-oauth' || config.oauthRefreshToken){
     if(!googleOAuthConfigured()) throw new Error('Gmail OAuth is not configured on this server');
@@ -837,7 +918,18 @@ async function syncImap(config, sinceDate, scanDays) {
 
           // Food/restaurant/grocery receipts are never merchandise — drop first
           // so the "not an order" diagnostics don't fill up with meal receipts.
-          if(isFoodEmail(subject, fromAddr)){ skipped++; diag.food++; continue; }
+          const parsedDate = parsed.date ? parsed.date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+          const emailId = computeEmailId(parsed.messageId, fromAddr, subject, parsedDate, bodyText);
+          if(isFoodEmail(subject, fromAddr)){
+            skipped++; diag.food++;
+            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date:parsedDate,reason:'Food, restaurant, or grocery'});
+            continue;
+          }
+          if(isNonMerchandiseEmail(subject, fromAddr, bodyText)){
+            skipped++; diag.noStatus++;
+            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date:parsedDate,reason:'Travel, ticket, subscription, service, or other non-merchandise'});
+            continue;
+          }
 
           // An email is an "order" if it looks like an order/ship/delivery/cancel
           // message — regardless of which store it's from. Same logic the tests use.
@@ -845,9 +937,10 @@ async function syncImap(config, sinceDate, scanDays) {
           if(!info){
             skipped++; diag.noStatus++;
             if(diag.noStatusSamples.length<20) diag.noStatusSamples.push(`${fromAddr}  ::  ${subject.slice(0,70)}`);
+            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date:parsedDate,reason:'No strong merchandise order signal'});
             continue;
           }
-          const date     = parsed.date ? parsed.date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+          const date     = parsedDate;
           const expectedDelivery = extractExpectedDelivery(bodyText) || estimateDelivery(info.status, date);
 
           // Every real email has its own unique Message-ID — that's the one thing
@@ -858,8 +951,11 @@ async function syncImap(config, sinceDate, scanDays) {
           // identical subject template with no order number in the body — keying
           // on subject text there would wrongly merge distinct real orders into 1
           // (this was the exact cause of orders silently disappearing on scan).
-          const emailId = computeEmailId(parsed.messageId, fromAddr, subject, date, bodyText);
-          if(seen.has(emailId)){skipped++;diag.dup++;continue;}
+          if(seen.has(emailId)){
+            skipped++;diag.dup++;
+            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date,reason:'Duplicate in this scan'});
+            continue;
+          }
           seen.add(emailId);
           diag.kept++;
 
@@ -870,6 +966,7 @@ async function syncImap(config, sinceDate, scanDays) {
             cat: info.cat, orderNum: info.orderNum, tracking: info.tracking,
             carrier:   info.carrier,
             trackingUrl: info.trackingUrl,
+            confidence: info.confidence,
             expectedDelivery,
             source:    fromAddr,
             image:     extractProductImage(htmlBody),
@@ -916,6 +1013,7 @@ function startAutoPoll() {
         if(found.length){
           console.log(`🆕 ${found.length} new order(s) found for ${acct.email}!`);
           pushToUserBuffer(acct.__userId, found);
+          maybeSendOrderEmailNotification(acct.__userId, found);
         }
       }catch(e){ console.log(`Poll error for ${acct.email}:`,e.message); }
     }
@@ -1457,7 +1555,7 @@ li{margin-bottom:6px;}
         let fresh=user;
         if(idx>-1){users[idx].lastLoginAt=new Date().toISOString();ensureUserDefaults(users[idx],users);saveUsers(users);fresh=users[idx];}
         res.setHeader('Set-Cookie',sessionCookie(token, 30*24*60*60, req));
-        sendJSON(res,{ok:true,email:fresh.email,webhookToken:fresh.webhookToken,...trialInfo(fresh)});
+        sendJSON(res,{ok:true,email:fresh.email,webhookToken:fresh.webhookToken,notifyPrefs:publicNotifyPrefs(fresh),...trialInfo(fresh)});
         return;
       }
       // New/unknown device → email a code and require verification.
@@ -1516,7 +1614,7 @@ li{margin-bottom:6px;}
       }
       const sessToken=createSession(user.id);
       res.setHeader('Set-Cookie',[sessionCookie(sessToken, 30*24*60*60, req), deviceCookie(deviceToken, 30*24*60*60, req)]);
-      sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken,...trialInfo(user)});
+      sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken,notifyPrefs:publicNotifyPrefs(user),...trialInfo(user)});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
   }
@@ -1551,7 +1649,7 @@ li{margin-bottom:6px;}
     const user=users.find(u=>u.id===userId);
     if(!user){sendJSON(res,{ok:false},401);return;}
     if(ensureUserDefaults(user, users))saveUsers(users); // backfill referral code for pre-beta accounts
-    sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken,...trialInfo(user)});
+    sendJSON(res,{ok:true,email:user.email,webhookToken:user.webhookToken,notifyPrefs:publicNotifyPrefs(user),...trialInfo(user)});
     return;
   }
 
@@ -1583,6 +1681,7 @@ li{margin-bottom:6px;}
       order.trackingUrl = detectCarrier(order.tracking)?.url||'';
       order.expectedDelivery = estimateDelivery(order.status, order.date);
       pushToUserBuffer(owner.id, [order]);
+      maybeSendOrderEmailNotification(owner.id, [order]);
       sendJSON(res,{ok:true,received:true});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
@@ -1663,6 +1762,36 @@ li{margin-bottom:6px;}
     return;
   }
 
+  if(req.method==='GET'&&req.url==='/api/settings/notifications'){
+    const user=findUserById(userId);
+    sendJSON(res,{ok:true,notifyPrefs:publicNotifyPrefs(user)});
+    return;
+  }
+  if(req.method==='POST'&&req.url==='/api/settings/notifications'){
+    try{
+      const incoming=JSON.parse(await readBody(req))||{};
+      const users=loadUsers();
+      const idx=users.findIndex(u=>u.id===userId);
+      if(idx<0){sendJSON(res,{ok:false,message:'Account not found'},404);return;}
+      const prefs={...DEFAULT_NOTIFY_PREFS};
+      Object.keys(prefs).forEach(k=>{ if(incoming[k]!=null) prefs[k]=!!incoming[k]; });
+      users[idx].notifyPrefs=prefs;
+      saveUsers(users);
+      sendJSON(res,{ok:true,notifyPrefs:prefs});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
+
+  if(req.method==='GET'&&req.url==='/api/ignored-emails'){
+    sendJSON(res,{ok:true,ignored:loadIgnoredFor(userId).slice(0,100)});
+    return;
+  }
+  if(req.method==='POST'&&req.url==='/api/ignored-emails/clear'){
+    saveIgnoredFor(userId, []);
+    sendJSON(res,{ok:true});
+    return;
+  }
+
   if(req.method==='GET'&&req.url==='/api/oauth/google/start'){
     if(!googleOAuthConfigured()){
       res.writeHead(503, {'Content-Type':'text/plain; charset=utf-8'});
@@ -1732,6 +1861,7 @@ li{margin-bottom:6px;}
       const cfg={...(saved||{}),...incoming};
       if(saved && saved.password && !incoming.password) cfg.password=saved.password;
       if(saved && saved.oauthRefreshToken && !incoming.oauthRefreshToken) cfg.oauthRefreshToken=saved.oauthRefreshToken;
+      cfg.__userId=userId;
       if(!cfg.email) throw new Error('Missing email account');
       const accounts=savedAccounts.filter(a=>a.email.toLowerCase()!==cfg.email.toLowerCase());
       accounts.push({email:cfg.email,password:cfg.password||'',oauthRefreshToken:cfg.oauthRefreshToken||'',host:cfg.host,port:cfg.port,provider:cfg.provider||'custom'});
@@ -1781,6 +1911,7 @@ li{margin-bottom:6px;}
       try{fs.unlinkSync(ordersFileFor(userId));}catch(_){}
       try{fs.unlinkSync(accountsFileFor(userId));}catch(_){}
       try{fs.unlinkSync(inventoryFileFor(userId));}catch(_){}
+      try{fs.unlinkSync(ignoredFileFor(userId));}catch(_){}
       delete newOrdersBuffers[userId];
       for(const [tok,sess] of sessions){ if(sess.userId===userId) sessions.delete(tok); }
       persistSessions();

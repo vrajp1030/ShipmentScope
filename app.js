@@ -37,6 +37,8 @@ let serverOnline=false;
 let cY=new Date().getFullYear(),cM=new Date().getMonth(),cSel=new Date().getDate();
 let charts=[],dashCharts=[],invCharts=[],currentEmailId=null,pollTimerId=null;
 let pendingChallenge=null; // in-progress email-2FA challenge token
+let notifyPrefs={email:false,ordered:true,preorder:true,shipped:true,delivered:true,cancelled:true,delayed:true};
+let ignoredEmails=[];
 
 const $=id=>document.getElementById(id);
 // Quota-safe localStorage write. Order/inventory records can carry large
@@ -243,7 +245,7 @@ function sw(tab){
   if(tab==='dashboard')safeRun(rDashboard);
   if(tab==='orders')safeRun(rOrders);
   if(tab==='inventory')safeRun(rInventory);
-  if(tab==='emails')safeRun(rEmails);
+  if(tab==='emails'){safeRun(rEmails);safeRun(loadIgnoredEmails);}
   if(tab==='tracking')safeRun(rTracking);
   if(tab==='calendar')safeRun(rCal);
   if(tab==='sync'){safeRun(renderSyncHistory);safeRun(renderSyncHealth);safeRun(updateScanMeta);}
@@ -399,6 +401,33 @@ function rStats(){
   if(document.getElementById('pane-dashboard')?.classList.contains('on'))safeRun(rDashboard);
 }
 
+function daysBetweenISO(a,b){
+  if(!a)return 0;
+  const da=new Date(a+'T00:00:00'),db=b?new Date(b+'T00:00:00'):new Date();
+  if(isNaN(da.getTime())||isNaN(db.getTime()))return 0;
+  return Math.floor((db-da)/86400000);
+}
+function needsAttentionOrders(){
+  const today=todayISO();
+  return orders.map(o=>{
+    let reason='',tone='amber';
+    if((o.status==='ordered'||o.status==='preorder')&&!o.tracking&&daysBetweenISO(o.date,today)>=3)reason='No tracking after 3 days';
+    else if(o.status==='shipped'&&o.expectedDelivery&&o.expectedDelivery<today){reason='Delivery date passed';tone='red';}
+    else if(o.status==='shipped'&&!o.tracking)reason='Shipped with no tracking number';
+    else if(o.status==='cancelled'){reason='Cancelled order';tone='red';}
+    return reason?{...o,attentionReason:reason,attentionTone:tone}:null;
+  }).filter(Boolean).slice(0,8);
+}
+function confidenceClass(score){
+  const n=parseInt(score)||0;
+  return n>=80?'':n>=60?' medium':' low';
+}
+function confidenceLabel(score){
+  const n=parseInt(score)||0;
+  if(!n)return '';
+  return '<span class="confidence-pill'+confidenceClass(n)+'"><i class="ti ti-shield-check"></i>'+n+'% confidence</span>';
+}
+
 // ── KPI BARS — each card's bottom bar is that stat's real share of total
 // orders (Total is trivially 100%; Spend just shows whether there's any
 // spend at all, since money has no natural "out of what" ceiling here).
@@ -519,6 +548,7 @@ function rDashboard(){
   const actEl=$('dash-activity'),gaugeSubEl=$('dash-gauge-sub');
   if(!actEl||!$('d-total'))return;
   renderDashboardActionCards();
+  renderNeedsAttention();
 
   // Personalized hero title (overrides the static TAB_HERO entry). The wave
   // emoji sits in its own span so the gradient text-clip doesn't blank it.
@@ -641,6 +671,20 @@ function rDashboard(){
     dashCharts.forEach(c=>{try{c.destroy();}catch(_){}});dashCharts=[];
     renderGaugeChart('dashGaugeChart',onTimePct,'#7c5cff','rgba(255,255,255,0.08)',dashCharts);
   }).catch(e=>console.error('Chart.js failed to load',e));
+}
+function renderNeedsAttention(){
+  const card=$('attention-card'),listEl=$('attention-list');
+  if(!card||!listEl)return;
+  const items=needsAttentionOrders();
+  if(!items.length){card.style.display='none';return;}
+  card.style.display='block';
+  listEl.innerHTML='<div class="attention-list">'+items.map(o=>
+    '<div class="attention-item" onclick="openOrderDetail(\''+o.id+'\')" style="cursor:pointer;">'+
+      '<i class="ti '+(o.attentionTone==='red'?'ti-alert-triangle':'ti-alert-circle')+'"></i>'+
+      '<div class="attention-info"><b>'+escHtml(o.name||'Unnamed order')+'</b><span>'+escHtml(o.attentionReason)+' · '+escHtml(o.store||'')+'</span></div>'+
+      '<span class="pill '+(SP[o.status]||'p-ordered')+'">'+(SL[o.status]||o.status)+'</span>'+
+    '</div>'
+  ).join('')+'</div>';
 }
 
 // ── GLOBAL SEARCH (header) ────────────────────────────────────────
@@ -1256,6 +1300,7 @@ function openEmail(orderId){
     '<span class="pill '+(SP[o.status]||'p-ordered')+'">'+(SL[o.status]||o.status)+'</span>'+
     (o.price?'<span class="pill" style="background:var(--green-d);color:var(--green);">$'+money(o.price)+'</span>':'')+
     (o.orderNum?'<span class="pill" style="background:var(--bg4);color:var(--txt2);">#'+escHtml(o.orderNum)+'</span>':'')+
+    confidenceLabel(o.confidence)+
     (o.trackingUrl?'<a class="track-link" href="'+o.trackingUrl+'" target="_blank"><i class="ti ti-truck" style="font-size:11px;"></i>'+escHtml(o.carrier||'Track')+'</a>':'')+
     (o.expectedDelivery?'<span class="pill" style="background:var(--amber-d);color:var(--amber);">Est. '+fd(o.expectedDelivery)+'</span>':'');
   const evBody=$('ev-body');
@@ -1296,6 +1341,7 @@ function openOrderDetail(orderId){
   $('dt-pills').innerHTML=
     '<span class="pill '+(SP[o.status]||'p-ordered')+'">'+(SL[o.status]||o.status)+'</span>'+
     (o.price?'<span class="pill" style="background:var(--green-d);color:var(--green);">$'+money(o.price)+'</span>':'')+
+    confidenceLabel(o.confidence)+
     (o.trackingUrl?'<a class="track-link '+carrierClass(o.carrier)+'" href="'+o.trackingUrl+'" target="_blank"><i class="ti ti-truck" style="font-size:11px;"></i>'+escHtml(o.carrier||'Track')+'</a>':'')+
     (o.expectedDelivery&&o.status!=='delivered'&&o.status!=='cancelled'?'<span class="pill" style="background:var(--amber-d);color:var(--amber);">Est. '+fd(o.expectedDelivery)+'</span>':'');
   if(isSafeImageUrl(o.image)){
@@ -1381,6 +1427,32 @@ function rEmails(){
     '</div>';
   }catch(e){console.error('email card error',o,e);return '';} }).join('');
 }
+async function loadIgnoredEmails(force=false){
+  const el=$('ignored-email-list');if(!el)return;
+  if(!force&&ignoredEmails.length){renderIgnoredEmails();return;}
+  try{
+    const res=await fetch(API+'/api/ignored-emails');
+    const data=await res.json();
+    if(data.ok)ignoredEmails=data.ignored||[];
+  }catch(_){}
+  renderIgnoredEmails();
+}
+function renderIgnoredEmails(){
+  const el=$('ignored-email-list');if(!el)return;
+  if(!ignoredEmails.length){el.innerHTML='<div class="notif-empty">No skipped emails recorded yet. Run a scan and this will show what ShipmentScope filtered out.</div>';return;}
+  el.innerHTML='<div class="ignored-list">'+ignoredEmails.slice(0,8).map(x=>
+    '<div class="ignored-item">'+
+      '<div class="ignored-info"><b>'+escHtml(x.subject||'No subject')+'</b><span>'+escHtml(x.from||'')+(x.date?' · '+escHtml(x.date):'')+'</span></div>'+
+      '<span class="ignored-reason">'+escHtml(x.reason||'Skipped')+'</span>'+
+    '</div>'
+  ).join('')+'</div>'+
+  '<button class="rb-btn" style="margin-top:10px;" onclick="clearIgnoredEmails()"><i class="ti ti-trash" style="font-size:13px;"></i> Clear review list</button>';
+}
+async function clearIgnoredEmails(){
+  if(!confirm('Clear the skipped-email review list? This does not change your orders.'))return;
+  try{await fetch(API+'/api/ignored-emails/clear',{method:'POST'});}catch(_){}
+  ignoredEmails=[];renderIgnoredEmails();showToast('Skipped-email list cleared');
+}
 
 // ── PACKAGE TRACKING ─────────────────────────────────────────────
 // Shows the last known status from your order emails. This is NOT live carrier
@@ -1419,6 +1491,7 @@ function rTracking(){
     else if(o.status==='cancelled') etaHtml='<div class="trk-eta" style="color:var(--red);">Cancelled</div>';
     else if(o.expectedDelivery) etaHtml='<div class="trk-eta">'+fd(o.expectedDelivery)+'<span>est. delivery</span></div>';
     else etaHtml='<div class="trk-eta" style="color:var(--txt3);">—</div>';
+    const refreshHtml=o.tracking?'<button class="track-link" onclick="event.stopPropagation();refreshTracking(\''+escAttr(String(o.id))+'\')" title="Refresh carrier link"><i class="ti ti-refresh" style="font-size:11px;"></i>Refresh</button>':'';
     const trackHtml=o.trackingUrl
       ? '<a class="track-link '+carrierClass(o.carrier)+'" href="'+o.trackingUrl+'" target="_blank" onclick="event.stopPropagation()"><i class="ti ti-truck" style="font-size:11px;"></i>'+escHtml(o.carrier||'Track')+'</a>'
       : '<span style="font-size:11px;color:var(--txt3);font-weight:500;">No tracking #</span>';
@@ -1428,12 +1501,30 @@ function rTracking(){
       '<div class="trk-info"><div class="trk-name">'+escHtml(o.name||'Unnamed order')+'</div>'+
         '<div class="trk-meta"><span>'+escHtml(o.store||'')+'</span>'+(o.orderNum?'<span>#'+escHtml(o.orderNum)+'</span>':'')+'</div></div>'+
       '<div class="trk-extra">'+
-        trackHtml+
+        trackHtml+refreshHtml+
         '<span class="pill '+(SP[o.status]||'p-ordered')+'">'+(SL[o.status]||o.status)+'</span>'+
         etaHtml+
       '</div>'+
     '</div>';
   }catch(e){console.error('tracking row error',o,e);return '';} }).join('');
+}
+async function refreshTracking(orderId){
+  const o=orders.find(x=>String(x.id)===String(orderId));
+  if(!o||!o.tracking){showToast('No tracking number on this order','warn');return;}
+  try{
+    const res=await fetch(API+'/api/track/'+encodeURIComponent(o.tracking));
+    const data=await res.json();
+    if(data.ok){
+      o.carrier=data.carrier||o.carrier;
+      o.trackingUrl=data.url||o.trackingUrl;
+      save();safeRun(rTracking);safeRun(rOrders);
+      if(o.trackingUrl)window.open(o.trackingUrl,'_blank');
+      showToast('Carrier link refreshed');
+      return;
+    }
+  }catch(_){}
+  if(o.trackingUrl)window.open(o.trackingUrl,'_blank');
+  else showToast('Could not refresh tracking link','warn');
 }
 
 // ── CALENDAR ─────────────────────────────────────────────────────
@@ -1643,9 +1734,10 @@ function renderDashboardActionCards(){
       {label:'Connect email',done:imapAccounts.length>0,action:"sw('sync');showAddAccountForm();"},
       {label:'Scan inbox',done:hist.length>0,action:"sw('sync');"},
       {label:'Import first order',done:orders.length>0,action:"sw('orders');"},
+      {label:'Turn on alerts',done:!!(settings.desktop||notifyPrefs.email||getDiscordWebhook()),action:"openSettings();"},
     ];
     const incomplete=steps.find(s=>!s.done);
-    if(orders.length&&imapAccounts.length)onboard.style.display='none';
+    if(!incomplete)onboard.style.display='none';
     else{
       onboard.style.display='block';
       onboard.innerHTML='<div class="onboard-head"><div><h3>Finish setting up ShipmentScope</h3><p>Connect your inbox, scan for merchandise orders, then start tracking.</p></div><button class="rb-btn" onclick="'+(incomplete?.action||"sw('sync')")+'"><i class="ti ti-arrow-right" style="font-size:13px;"></i> Continue</button></div>'+
@@ -1717,6 +1809,7 @@ async function runScan(){
     }catch(err){errors.push(acct.email+': '+err.message);setAcctSyncMeta(acct.email,{lastSync:now,ok:false});}
   }
   const found=allFound;
+  loadIgnoredEmails(true).catch(()=>{});
   // Mark duplicates; also flag which "new" ones are really status updates to
   // an order we already track (delivered/shipped notices) so the button can
   // say Update instead of Import.
@@ -1737,7 +1830,7 @@ async function runScan(){
           : '<span style="font-size:17px;">'+(CATS[d.cat]?.e||'<i class="ti ti-package"></i>')+'</span>')+
         '<div class="di-info">'+
           '<div class="di-name">'+escHtml((d.name||'').slice(0,60))+'</div>'+
-          '<div class="di-sub">'+escHtml(d.store||'')+' · '+escHtml(d.date||'')+(d.price?' · $'+money(d.price):'')+' · <span style="color:'+(SC[d.status]||'var(--txt3)')+';">'+(SL[d.status]||d.status)+'</span></div>'+
+          '<div class="di-sub">'+escHtml(d.store||'')+' · '+escHtml(d.date||'')+(d.price?' · $'+money(d.price):'')+' · <span style="color:'+(SC[d.status]||'var(--txt3)')+';">'+(SL[d.status]||d.status)+'</span>'+(d.confidence?' · '+d.confidence+'% confidence':'')+'</div>'+
         '</div>'+
         '<button class="di-add" id="det-btn-'+i+'" onclick="impD('+i+')">'+(d.isUpdate?'Update':'Import')+'</button>'+
       '</div>'
@@ -1825,10 +1918,11 @@ function upsertOrder(d){
     if(d.emailHtml && !ex.emailHtml) ex.emailHtml=d.emailHtml;
     if(d.emailText && !ex.emailText) ex.emailText=d.emailText;
     if(d.image && !ex.image) ex.image=d.image;
+    if(d.confidence) ex.confidence=d.confidence;
     if(d.date && (!ex.date || d.date<ex.date)) ex.date=d.date; // keep earliest (the order date)
     return 'updated';
   }
-  orders.push({id:nid++,name:d.name,store:d.store,price:d.price||0,date:d.date,status:d.status,cat:d.cat,orderNum:d.orderNum||'',tracking:d.tracking||'',carrier:d.carrier||'',trackingUrl:d.trackingUrl||'',expectedDelivery:d.expectedDelivery||'',source:d.source||'',image:d.image||'',emailHtml:d.emailHtml||'',emailText:d.emailText||'',emailId:d.emailId||'',notes:'',archived:false,history:[{status:d.status,date:d.date||todayISO()}]});
+  orders.push({id:nid++,name:d.name,store:d.store,price:d.price||0,date:d.date,status:d.status,cat:d.cat,orderNum:d.orderNum||'',tracking:d.tracking||'',carrier:d.carrier||'',trackingUrl:d.trackingUrl||'',expectedDelivery:d.expectedDelivery||'',source:d.source||'',image:d.image||'',emailHtml:d.emailHtml||'',emailText:d.emailText||'',emailId:d.emailId||'',confidence:d.confidence||0,notes:'',archived:false,history:[{status:d.status,date:d.date||todayISO()}]});
   return 'added';
 }
 
@@ -2540,6 +2634,7 @@ function openSettings(){
   $('monthly-budget').value=budget;
   // Sync toggles with settings
   Object.keys(settings).forEach(k=>{const t=$('tog-'+k);if(t)t.className='toggle'+(settings[k]?' on':'');});
+  renderNotifyToggles();
   renderAccentSwatches();
   setDensityControl(localStorage.getItem('ss_density')||'comfortable');
   $('default-tab').value=localStorage.getItem('ss_defaultTab')||'dashboard';
@@ -2562,6 +2657,31 @@ function closeSettings(){
 function toggleSetting(key){
   settings[key]=!settings[key];saveSettings();
   const t=$('tog-'+key);if(t)t.className='toggle'+(settings[key]?' on':'');
+}
+function renderNotifyToggles(){
+  const map={email:'tog-email-alerts',ordered:'tog-notify-ordered',shipped:'tog-notify-shipped',delivered:'tog-notify-delivered',cancelled:'tog-notify-cancelled'};
+  Object.entries(map).forEach(([k,id])=>{const t=$(id);if(t)t.className='toggle'+(notifyPrefs[k]?' on':'');});
+}
+async function loadNotifyPrefs(){
+  try{
+    const res=await fetch(API+'/api/settings/notifications');
+    const data=await res.json();
+    if(data.ok&&data.notifyPrefs){notifyPrefs={...notifyPrefs,...data.notifyPrefs};renderNotifyToggles();}
+  }catch(_){}
+}
+async function saveNotifyPrefs(){
+  try{
+    const res=await fetch(API+'/api/settings/notifications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(notifyPrefs)});
+    const data=await res.json();
+    if(data.ok&&data.notifyPrefs)notifyPrefs={...notifyPrefs,...data.notifyPrefs};
+  }catch(_){showToast('Could not save email alert settings','warn');}
+  renderNotifyToggles();
+}
+function toggleNotifyPref(key){
+  notifyPrefs[key]=!notifyPrefs[key];
+  if(key==='ordered')notifyPrefs.preorder=notifyPrefs.ordered;
+  saveNotifyPrefs();
+  showToast(key==='email'?(notifyPrefs.email?'ShipmentScope email alerts on':'ShipmentScope email alerts off'):'Notification preference updated');
 }
 
 // ── DESKTOP NOTIFICATIONS ──────────────────────────────────────────
@@ -2760,11 +2880,20 @@ async function pollNewOrders(){
 // Bare-letter shortcuts are disabled while typing in a field; ⌘K always works (standard convention).
 document.addEventListener('keydown',(e)=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openCommandPalette();return;}
-  if(e.key==='Escape'){closeCommandPalette();closeM();closeSettings();closeEmail();closeDetail();return;}
+  if(e.key==='Escape'){closeCommandPalette();closeM();closeInvModal();closeCheckoutCard();closeDeleteAccount();closeSettings();closeEmail();closeDetail();return;}
   const tag=(document.activeElement||{}).tagName;
   if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
   if(e.key==='/'){e.preventDefault();openCommandPalette();}
   else if(e.key.toLowerCase()==='n'){e.preventDefault();openM();}
+});
+document.addEventListener('click',(e)=>{
+  if(e.target.id==='settings-overlay')closeSettings();
+  else if(e.target.id==='email-overlay')closeEmail();
+  else if(e.target.id==='detail-overlay')closeDetail();
+  else if(e.target.id==='mwrap')closeM();
+  else if(e.target.id==='inv-modal')closeInvModal();
+  else if(e.target.id==='del-acct-wrap')closeDeleteAccount();
+  else if(e.target.id==='card-wrap')closeCheckoutCard();
 });
 function focusGlobalSearch(){sw('orders');const s=$('srch');if(s){s.focus();s.select();}}
 
@@ -3066,6 +3195,7 @@ async function checkAuthOnLoad(){
 let trialState=null;
 function applyTrialState(data){
   if(!data||data.trialDaysLeft===undefined)return;
+  if(data.notifyPrefs)notifyPrefs={...notifyPrefs,...data.notifyPrefs};
   trialState={daysLeft:data.trialDaysLeft,expired:!!data.trialExpired,referralCode:data.referralCode||null,referralCount:data.referralCount||0,perBonus:data.referralsPerBonus||3,bonusDays:data.referralBonusDays||10};
   renderTrialUI();
 }
@@ -3217,7 +3347,9 @@ async function initAppAfterLogin(){
   setDensityControl(localStorage.getItem('ss_density')||'comfortable');
   const defaultSort=localStorage.getItem('ss_defaultSort');
   if(defaultSort&&$('sort-sel'))$('sort-sel').value=defaultSort;
+  await loadNotifyPrefs();
   await loadAccountsFromServer();
+  loadIgnoredEmails(true).catch(()=>{});
   switchEmailGuide('gmail');
   const whEl=$('webhook-url-display');
   if(whEl)whEl.textContent=location.origin+'/webhook/'+currentWebhookToken;

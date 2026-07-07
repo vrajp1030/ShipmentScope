@@ -122,6 +122,7 @@ td.num{text-align:right;}th.num{text-align:right;}
   <div id="content"><div class="empty"><i class="ti ti-loader-2"></i><p>Loading…</p></div></div>
 </div>
 <script>
+let latestStats=null;
 async function adminAction(userId,action,days){
   const labels={
     'extend-trial':'extend this trial',
@@ -155,6 +156,28 @@ async function adminAction(userId,action,days){
     alert(e.message||'Could not update user.');
   }
 }
+function giveawayPool(){
+  const users=(latestStats&&latestStats.perUser)||[];
+  return users.filter(u=>(u.ordersThisMonth||0)>0).sort((a,b)=>(b.ordersThisMonth||0)-(a.ordersThisMonth||0));
+}
+function pickGiveawayWinner(){
+  const pool=giveawayPool();
+  if(!pool.length){alert('No eligible users with orders this month yet.');return;}
+  const winner=pool[Math.floor(Math.random()*pool.length)];
+  alert('Giveaway winner: '+winner.email+'\\nThis month: '+winner.ordersThisMonth+' order'+(winner.ordersThisMonth===1?'':'s'));
+}
+function exportGiveawayCSV(){
+  const pool=giveawayPool();
+  if(!pool.length){alert('No leaderboard rows to export yet.');return;}
+  const escCsv=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const rows=[['Rank','Email','Orders This Month','Total Orders','Spend','Referrals'].map(escCsv).join(',')];
+  pool.forEach((u,i)=>rows.push([i+1,u.email,u.ordersThisMonth,u.orders,u.spend,u.referralCount].map(escCsv).join(',')));
+  const blob=new Blob([rows.join('\\n')],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='shipmentscope-giveaway-leaderboard.csv';
+  document.body.appendChild(a);a.click();a.remove();
+}
 async function load(){
   const el=document.getElementById('content');
   try{
@@ -162,6 +185,7 @@ async function load(){
     const data=await res.json();
     if(!data.ok){el.innerHTML='<div class="err">'+(data.message||'Could not load stats.')+'</div>';return;}
     const s=data.stats;
+    latestStats=s;
     if(!s.totalUsers){el.innerHTML='<div class="empty"><i class="ti ti-chart-bar"></i><p>No accounts yet — stats will appear once people sign up.</p></div>';return;}
     const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const attr=t=>esc(t).replace(/"/g,'&quot;');
@@ -171,7 +195,7 @@ async function load(){
     const initials=email=>String(email||'?').slice(0,1);
     const trialPill=d=>d==null?'<span class="pill inf">∞ unlimited</span>':d<=0?'<span class="pill bad">expired</span>':d<=10?'<span class="pill warn">'+d+'d left</span>':'<span class="pill ok">'+d+'d left</span>';
     const users=s.perUser||[];
-    const topOrders=[...users].sort((a,b)=>b.orders-a.orders).slice(0,10);
+    const topOrders=[...users].sort((a,b)=>(b.ordersThisMonth-a.ordersThisMonth)||(b.orders-a.orders)).slice(0,10);
     const topReferrals=[...users].sort((a,b)=>b.referralCount-a.referralCount).slice(0,5);
     const expiring=users.filter(u=>u.trialDaysLeft!=null&&u.trialDaysLeft<=10).length;
     const connectedRate=pct(s.totalAccounts,s.totalUsers);
@@ -208,6 +232,7 @@ async function load(){
       '</div>'+
       '<div class="section-lbl">Giveaway order leaderboard</div>'+
       '<div class="panel">'+
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:10px;"><button class="ctl good" onclick="pickGiveawayWinner()">Pick random winner</button><button class="ctl" onclick="exportGiveawayCSV()">Export CSV</button></div>'+
         '<div class="giveaway">'+
           (topOrders.length?topOrders.map((u,i)=>'<div class="giveaway-card"><div class="rank">'+(i+1)+'</div><div class="giveaway-main"><b>'+esc(u.email)+'</b><span>'+u.ordersThisMonth+' orders this month · '+money(u.spend)+' tracked</span></div><div class="giveaway-score">'+u.orders+'<br><span style="font-size:10px;color:var(--txt3);font-weight:800;">orders</span></div></div>').join(''):'<div class="sub">No order activity yet.</div>')+
         '</div>'+
