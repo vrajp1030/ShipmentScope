@@ -419,6 +419,11 @@ const ACCOUNTS_DIR = path.join(DATA_DIR, 'accounts');
 const INVENTORY_DIR = path.join(DATA_DIR, 'inventory');
 const IGNORED_DIR = path.join(DATA_DIR, 'ignored');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
+const BROADCAST_FILE = path.join(DATA_DIR, 'broadcast.json');
+const ACTIVITY_FILE = path.join(DATA_DIR, 'activity.json');
+const REPORTS_FILE = path.join(DATA_DIR, 'order-reports.json');
+const GIVEAWAY_FILE = path.join(DATA_DIR, 'giveaway.json');
+const INVITES_FILE = path.join(DATA_DIR, 'invite-codes.json');
 function ensureDir(d){ if(!fs.existsSync(d)) fs.mkdirSync(d,{recursive:true}); }
 ensureDir(DATA_DIR); ensureDir(ORDERS_DIR); ensureDir(ACCOUNTS_DIR); ensureDir(INVENTORY_DIR); ensureDir(IGNORED_DIR);
 
@@ -492,6 +497,17 @@ function loadUsers(){ try{ if(fs.existsSync(USERS_FILE)) return JSON.parse(fs.re
 function saveUsers(users){ fs.writeFileSync(USERS_FILE, JSON.stringify(users,null,2)); }
 function findUserByEmail(email){ return loadUsers().find(u=>u.email.toLowerCase()===String(email||'').toLowerCase()); }
 function findUserById(id){ return loadUsers().find(u=>u.id===id); }
+function readJsonFile(file, fallback){
+  try{ if(fs.existsSync(file)) return JSON.parse(fs.readFileSync(file,'utf8')); }catch(_){}
+  return fallback;
+}
+function writeJsonFile(file, data){ fs.writeFileSync(file, JSON.stringify(data,null,2)); }
+function appendActivity(type, detail){
+  const all=readJsonFile(ACTIVITY_FILE, []);
+  all.unshift({ts:new Date().toISOString(),type,...(detail||{})});
+  if(all.length>1000)all.length=1000;
+  writeJsonFile(ACTIVITY_FILE, all);
+}
 const DEFAULT_NOTIFY_PREFS = {
   email:false,
   ordered:true,
@@ -503,6 +519,23 @@ const DEFAULT_NOTIFY_PREFS = {
 };
 function userNotifyPrefs(user){ return {...DEFAULT_NOTIFY_PREFS, ...(user&&user.notifyPrefs||{})}; }
 function publicNotifyPrefs(user){ return userNotifyPrefs(user); }
+const DEFAULT_IMPORT_RULES = {
+  mode:'collectibles',
+  excludeStores:'',
+  excludeSenders:'',
+};
+function userImportRules(user){ return {...DEFAULT_IMPORT_RULES, ...(user&&user.importRules||{})}; }
+function importRulesBlockOrder(rules, order, fromAddr){
+  const r={...DEFAULT_IMPORT_RULES,...(rules||{})};
+  const store=(order?.store||'').toLowerCase();
+  const from=(fromAddr||order?.source||'').toLowerCase();
+  const storeBlocks=String(r.excludeStores||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+  const senderBlocks=String(r.excludeSenders||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+  if(storeBlocks.some(s=>store.includes(s))) return 'Excluded store';
+  if(senderBlocks.some(s=>from.includes(s))) return 'Excluded sender';
+  if(r.mode==='collectibles' && !['packs','cards','graded','figures','accessories'].includes(order?.cat)) return 'Outside collectibles mode';
+  return '';
+}
 
 // ── RATE LIMITING (in-memory, per-IP + per-email) ──────────────────
 // Protects login/signup from brute-force password guessing and mass fake
@@ -645,8 +678,38 @@ function recordIgnoredEmail(userId, item){
     from:String(item.from||'').slice(0,180),
     subject:String(item.subject||'').slice(0,180),
     reason:String(item.reason||'Skipped').slice(0,120),
+    emailText:String(item.emailText||'').slice(0,10000),
+    emailHtml:String(item.emailHtml||'').slice(0,50000),
   });
   saveIgnoredFor(userId, all);
+}
+function orderFromIgnoredEmail(item){
+  const subject=item.subject||'Restored email order';
+  const from=item.from||'';
+  const body=item.emailText||'';
+  const info=classifyEmail(subject, from, body) || {};
+  const tracking=info.tracking||extractTracking(body);
+  const carrier=detectCarrier(tracking);
+  const date=item.date||new Date().toISOString().split('T')[0];
+  return {
+    emailId:item.key||'',
+    name:subject.replace(/^(re:|fwd:|fw:)\s*/i,'').trim().slice(0,100)||'Restored email order',
+    store:info.store||getStoreName(from, body),
+    price:info.price||extractPrice(subject, body),
+    date,
+    status:info.status||'ordered',
+    cat:info.cat||detectCategory(subject, body),
+    orderNum:info.orderNum||extractOrderNum(subject, body),
+    tracking,
+    carrier:info.carrier||carrier?.name||'',
+    trackingUrl:info.trackingUrl||carrier?.url||'',
+    confidence:info.confidence||45,
+    expectedDelivery:extractExpectedDelivery(body)||estimateDelivery(info.status||'ordered', date),
+    source:from,
+    image:extractProductImage(item.emailHtml||''),
+    emailHtml:item.emailHtml||'',
+    emailText:body,
+  };
 }
 
 // ── Per-user IMAP account storage (passwords encrypted at rest) ──
@@ -808,6 +871,34 @@ function maybeSendOrderEmailNotification(userId, found){
   if(!wanted.length) return;
   sendMail(user.email,'ShipmentScope found '+wanted.length+' order update'+(wanted.length===1?'':'s'),orderNotificationHtml(wanted)).catch(e=>console.log('Order notification email failed:',e.message));
 }
+function weeklyRecapHtml(user, orders){
+  const since=new Date(); since.setDate(since.getDate()-7);
+  const recent=orders.filter(o=>o.date&&new Date(o.date+'T00:00:00')>=since);
+  const counts={ordered:0,preorder:0,shipped:0,delivered:0,cancelled:0};
+  recent.forEach(o=>{ if(counts[o.status]!=null)counts[o.status]++; });
+  const spend=recent.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+(o.price||0),0);
+  return `<!doctype html><html><body style="margin:0;background:#f5f3ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#18142f;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:28px 14px;background:#f5f3ff;"><tr><td align="center">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:540px;background:#fff;border:1px solid #e7e2ff;border-radius:18px;overflow:hidden;">
+  <tr><td style="padding:22px 26px;background:linear-gradient(135deg,#24124f,#5b21b6 60%,#8b5cf6);color:white;"><div style="font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:#d9d1ff;font-weight:800;">Weekly recap</div><div style="font-size:24px;font-weight:900;margin-top:8px;">Your ShipmentScope week</div></td></tr>
+  <tr><td style="padding:22px 26px;"><p style="margin:0 0 16px;color:#332f4d;">${recent.length} order${recent.length===1?'':'s'} tracked this week · $${Math.round(spend).toLocaleString()} in non-cancelled order value.</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${Object.entries(counts).map(([k,v])=>`<tr><td style="padding:8px 0;border-bottom:1px solid #eeeafc;color:#6f6a85;">${SLABEL(k)}</td><td align="right" style="font-weight:900;color:#27213f;border-bottom:1px solid #eeeafc;">${v}</td></tr>`).join('')}</table>
+  <p style="margin:18px 0 0;font-size:12px;color:#8a859d;">You can change alerts inside ShipmentScope Settings.</p></td></tr></table></td></tr></table></body></html>`;
+}
+async function sendWeeklyRecaps(){
+  const users=loadUsers();
+  let sent=0;
+  for(const user of users){
+    const prefs=userNotifyPrefs(user);
+    if(!prefs.email) continue;
+    const orders=loadOrdersFor(user.id);
+    if(!orders.length) continue;
+    await sendMail(user.email,'Your ShipmentScope weekly recap',weeklyRecapHtml(user, orders));
+    sent++;
+  }
+  appendActivity('weekly-recap',{sent});
+  return sent;
+}
 
 const googleOAuthStates = new Map(); // state -> {userId, expires}
 function requestOrigin(req){
@@ -867,6 +958,8 @@ async function fetchGoogleEmail(accessToken){
 async function syncImap(config, sinceDate, scanDays) {
   const { host, port, email, password } = config;
   const ownerUserId = config.__userId || null;
+  const ownerUser = ownerUserId ? findUserById(ownerUserId) : null;
+  const importRules = userImportRules(ownerUser);
   const auth = { user: email };
   if(config.provider==='gmail-oauth' || config.oauthRefreshToken){
     if(!googleOAuthConfigured()) throw new Error('Gmail OAuth is not configured on this server');
@@ -922,12 +1015,12 @@ async function syncImap(config, sinceDate, scanDays) {
           const emailId = computeEmailId(parsed.messageId, fromAddr, subject, parsedDate, bodyText);
           if(isFoodEmail(subject, fromAddr)){
             skipped++; diag.food++;
-            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date:parsedDate,reason:'Food, restaurant, or grocery'});
+            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date:parsedDate,reason:'Food, restaurant, or grocery',emailText:bodyText,emailHtml:htmlBody});
             continue;
           }
           if(isNonMerchandiseEmail(subject, fromAddr, bodyText)){
             skipped++; diag.noStatus++;
-            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date:parsedDate,reason:'Travel, ticket, subscription, service, or other non-merchandise'});
+            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date:parsedDate,reason:'Travel, ticket, subscription, service, or other non-merchandise',emailText:bodyText,emailHtml:htmlBody});
             continue;
           }
 
@@ -937,11 +1030,17 @@ async function syncImap(config, sinceDate, scanDays) {
           if(!info){
             skipped++; diag.noStatus++;
             if(diag.noStatusSamples.length<20) diag.noStatusSamples.push(`${fromAddr}  ::  ${subject.slice(0,70)}`);
-            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date:parsedDate,reason:'No strong merchandise order signal'});
+            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date:parsedDate,reason:'No strong merchandise order signal',emailText:bodyText,emailHtml:htmlBody});
             continue;
           }
           const date     = parsedDate;
           const expectedDelivery = extractExpectedDelivery(bodyText) || estimateDelivery(info.status, date);
+          const blockedByRules=importRulesBlockOrder(importRules,{...info,source:fromAddr},fromAddr);
+          if(blockedByRules){
+            skipped++; diag.noStatus++;
+            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date,reason:blockedByRules,emailText:bodyText,emailHtml:htmlBody});
+            continue;
+          }
 
           // Every real email has its own unique Message-ID — that's the one thing
           // that safely proves "this is literally the same email" (e.g. re-fetched
@@ -953,7 +1052,7 @@ async function syncImap(config, sinceDate, scanDays) {
           // (this was the exact cause of orders silently disappearing on scan).
           if(seen.has(emailId)){
             skipped++;diag.dup++;
-            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date,reason:'Duplicate in this scan'});
+            recordIgnoredEmail(ownerUserId,{emailId,from:fromAddr,subject,date,reason:'Duplicate in this scan',emailText:bodyText,emailHtml:htmlBody});
             continue;
           }
           seen.add(emailId);
@@ -1176,6 +1275,26 @@ function findUserByReferralCode(code){
   if(!c) return null;
   return loadUsers().find(u=>u.referralCode && u.referralCode.toLowerCase()===c)||null;
 }
+function loadInviteCodes(){ return readJsonFile(INVITES_FILE, []); }
+function saveInviteCodes(codes){ writeJsonFile(INVITES_FILE, codes||[]); }
+function findInviteCode(code){
+  const c=String(code||'').trim().toLowerCase();
+  if(!c) return null;
+  return loadInviteCodes().find(x=>String(x.code||'').toLowerCase()===c && x.active!==false && (parseInt(x.used)||0)<(parseInt(x.maxUses)||1))||null;
+}
+function consumeInviteCode(code){
+  const c=String(code||'').trim().toLowerCase();
+  if(!c) return null;
+  const codes=loadInviteCodes();
+  const inv=codes.find(x=>String(x.code||'').toLowerCase()===c && x.active!==false);
+  if(!inv) return null;
+  const limit=parseInt(inv.maxUses)||1;
+  const used=parseInt(inv.used)||0;
+  if(used>=limit) return null;
+  inv.used=used+1; inv.lastUsedAt=new Date().toISOString();
+  saveInviteCodes(codes);
+  return inv;
+}
 function addDaysIso(fromIso, days){ const d=new Date(fromIso); d.setDate(d.getDate()+days); return d.toISOString(); }
 function trialDaysLeft(user){
   if(!user.trialEndsAt) return null; // unlimited (grandfathered/operator)
@@ -1274,8 +1393,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 function isAdminAuthorized(req) { return !!ADMIN_PASSWORD && checkBasicAuth(req, ADMIN_PASSWORD); }
 function isAdminRoute(req) {
   const pathOnly = String(req.url||'').split('?')[0];
-  return (req.method==='GET' && (pathOnly==='/admin' || pathOnly==='/api/admin/stats')) ||
-    (req.method==='POST' && pathOnly==='/api/admin/user-action');
+  return pathOnly==='/admin' || pathOnly.startsWith('/api/admin/');
 }
 
 const server = http.createServer(async (req, res) => {
@@ -1505,6 +1623,81 @@ li{margin-bottom:6px;}
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
   }
+  if(req.method==='GET'&&req.url==='/api/admin/operator'){
+    if(!ADMIN_PASSWORD){sendJSON(res,{ok:false,message:'Admin panel disabled'},404);return;}
+    if(!isAdminAuthorized(req)){sendJSON(res,{ok:false,message:'Not authorized'},401);return;}
+    sendJSON(res,{ok:true,
+      broadcast:readJsonFile(BROADCAST_FILE, {}),
+      activity:readJsonFile(ACTIVITY_FILE, []).slice(0,60),
+      reports:readJsonFile(REPORTS_FILE, []).slice(0,60),
+      giveaway:readJsonFile(GIVEAWAY_FILE, {history:[]}),
+      invites:loadInviteCodes(),
+    });
+    return;
+  }
+  if(req.method==='POST'&&req.url==='/api/admin/broadcast'){
+    if(!ADMIN_PASSWORD){sendJSON(res,{ok:false,message:'Admin panel disabled'},404);return;}
+    if(!isAdminAuthorized(req)){sendJSON(res,{ok:false,message:'Not authorized'},401);return;}
+    try{
+      const body=JSON.parse(await readBody(req))||{};
+      const data={message:String(body.message||'').trim().slice(0,500),enabled:body.enabled!==false,updatedAt:new Date().toISOString(),expiresAt:body.expiresAt||''};
+      writeJsonFile(BROADCAST_FILE, data);
+      appendActivity('admin-broadcast',{message:data.message});
+      sendJSON(res,{ok:true,broadcast:data});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
+  if(req.method==='POST'&&req.url==='/api/admin/invite-code'){
+    if(!ADMIN_PASSWORD){sendJSON(res,{ok:false,message:'Admin panel disabled'},404);return;}
+    if(!isAdminAuthorized(req)){sendJSON(res,{ok:false,message:'Not authorized'},401);return;}
+    try{
+      const body=JSON.parse(await readBody(req))||{};
+      const codes=loadInviteCodes();
+      const action=body.action||'create';
+      if(action==='toggle'){
+        const inv=codes.find(x=>x.code===body.code); if(inv)inv.active=body.active!==false;
+      }else{
+        const code=String(body.code||('BETA-'+crypto.randomBytes(3).toString('hex').toUpperCase())).trim().toUpperCase();
+        if(!codes.some(x=>x.code===code))codes.unshift({code,maxUses:Math.max(1,Math.min(1000,parseInt(body.maxUses)||1)),used:0,active:true,label:String(body.label||'').slice(0,80),createdAt:new Date().toISOString()});
+      }
+      saveInviteCodes(codes);
+      appendActivity('admin-invite-code',{action,code:body.code||''});
+      sendJSON(res,{ok:true,invites:codes});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
+  if(req.method==='POST'&&req.url==='/api/admin/giveaway'){
+    if(!ADMIN_PASSWORD){sendJSON(res,{ok:false,message:'Admin panel disabled'},404);return;}
+    if(!isAdminAuthorized(req)){sendJSON(res,{ok:false,message:'Not authorized'},401);return;}
+    try{
+      const body=JSON.parse(await readBody(req))||{};
+      const giveaway=readJsonFile(GIVEAWAY_FILE, {history:[]});
+      if(body.action==='save'){
+        giveaway.title=String(body.title||'Monthly order giveaway').slice(0,100);
+        giveaway.start=String(body.start||'').slice(0,10);
+        giveaway.end=String(body.end||'').slice(0,10);
+        giveaway.excludeCancelled=body.excludeCancelled!==false;
+        giveaway.updatedAt=new Date().toISOString();
+      }else if(body.action==='pick'){
+        const users=computeAdminStats().perUser.filter(u=>(u.ordersThisMonth||0)>0);
+        if(!users.length){sendJSON(res,{ok:false,message:'No eligible users yet'},400);return;}
+        const winner=users[Math.floor(Math.random()*users.length)];
+        giveaway.history=giveaway.history||[];
+        giveaway.history.unshift({ts:new Date().toISOString(),title:giveaway.title||'Giveaway',email:winner.email,ordersThisMonth:winner.ordersThisMonth,totalOrders:winner.orders});
+      }
+      writeJsonFile(GIVEAWAY_FILE, giveaway);
+      appendActivity('admin-giveaway',{action:body.action||''});
+      sendJSON(res,{ok:true,giveaway});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
+  if(req.method==='POST'&&req.url==='/api/admin/send-weekly-recaps'){
+    if(!ADMIN_PASSWORD){sendJSON(res,{ok:false,message:'Admin panel disabled'},404);return;}
+    if(!isAdminAuthorized(req)){sendJSON(res,{ok:false,message:'Not authorized'},401);return;}
+    try{const sent=await sendWeeklyRecaps();sendJSON(res,{ok:true,sent});}
+    catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
 
   // ── AUTH ─────────────────────────────────────────────────────────
   if(req.method==='POST'&&req.url==='/api/auth/signup'){
@@ -1520,18 +1713,19 @@ li{margin-bottom:6px;}
       if(!pwCheck.ok){sendJSON(res,{ok:false,message:pwCheck.message},400);return;}
       // Private beta gate: the operator's BETA_CODE or a friend's referral code.
       const codeInput=String(betaCode||'').trim();
-      let referrer=null;
+      let referrer=null, invite=null;
       const matchesBetaCode = BETA_CODE && codeInput.toLowerCase()===BETA_CODE.toLowerCase();
       if(!matchesBetaCode){
         referrer=findUserByReferralCode(codeInput);
-        if(!referrer){sendJSON(res,{ok:false,message:'ShipmentScope is in private beta — enter a valid beta access code or a referral code from an existing member.'},403);return;}
+        if(!referrer) invite=findInviteCode(codeInput);
+        if(!referrer&&!invite){sendJSON(res,{ok:false,message:'ShipmentScope is in private beta — enter a valid beta access code, invite code, or a referral code from an existing member.'},403);return;}
       }
       const users=loadUsers();
       if(users.some(u=>u.email.toLowerCase()===email.toLowerCase())){sendJSON(res,{ok:false,message:'An account with that email already exists'},409);return;}
       // Don't create the account yet — email a 6-digit code first and stash the
       // would-be account fields in a short-lived challenge. verify-code creates it.
       const {salt,hash}=hashPassword(password);
-      const {token:challenge,code}=createChallenge('signup', email, {email,salt,hash,acceptedTerms:!!acceptedTerms,referredBy:referrer?referrer.id:null});
+      const {token:challenge,code}=createChallenge('signup', email, {email,salt,hash,acceptedTerms:!!acceptedTerms,referredBy:referrer?referrer.id:null,inviteCode:invite?invite.code:null});
       sendMail(email,'Your ShipmentScope verification code',twoFactorEmailHtml(code,'signup')).catch(e=>console.log('2FA email failed:',e.message));
       sendJSON(res,{ok:true,needsCode:true,challenge,email});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
@@ -1554,6 +1748,7 @@ li{margin-bottom:6px;}
         const idx=users.findIndex(u=>u.id===user.id);
         let fresh=user;
         if(idx>-1){users[idx].lastLoginAt=new Date().toISOString();ensureUserDefaults(users[idx],users);saveUsers(users);fresh=users[idx];}
+        appendActivity('login',{userId:fresh.id,email:fresh.email,trusted:true});
         res.setHeader('Set-Cookie',sessionCookie(token, 30*24*60*60, req));
         sendJSON(res,{ok:true,email:fresh.email,webhookToken:fresh.webhookToken,notifyPrefs:publicNotifyPrefs(fresh),...trialInfo(fresh)});
         return;
@@ -1600,7 +1795,9 @@ li{margin-bottom:6px;}
             }
           }
         }
+        if(p.data.inviteCode) consumeInviteCode(p.data.inviteCode);
         saveUsers(users);
+        appendActivity('signup',{userId:user.id,email:user.email,inviteCode:p.data.inviteCode||'',referredBy:p.data.referredBy||''});
         if(isFirstUser){ const legacyOrders=loadOrders(); if(legacyOrders.length) saveOrdersFor(user.id, legacyOrders); }
       }else{
         const users=loadUsers();
@@ -1611,6 +1808,7 @@ li{margin-bottom:6px;}
         user.lastLoginAt=nowIso;
         ensureUserDefaults(user, users);
         saveUsers(users);
+        appendActivity('login',{userId:user.id,email:user.email});
       }
       const sessToken=createSession(user.id);
       res.setHeader('Set-Cookie',[sessionCookie(sessToken, 30*24*60*60, req), deviceCookie(deviceToken, 30*24*60*60, req)]);
@@ -1786,9 +1984,69 @@ li{margin-bottom:6px;}
     sendJSON(res,{ok:true,ignored:loadIgnoredFor(userId).slice(0,100)});
     return;
   }
+  if(req.method==='POST'&&req.url==='/api/ignored-emails/restore'){
+    try{
+      const {key}=JSON.parse(await readBody(req));
+      const all=loadIgnoredFor(userId);
+      const item=all.find(x=>x.key===key);
+      if(!item){sendJSON(res,{ok:false,message:'Skipped email not found'},404);return;}
+      const order=orderFromIgnoredEmail(item);
+      saveIgnoredFor(userId, all.filter(x=>x.key!==key));
+      appendActivity('restore-skipped',{userId,email:findUserById(userId)?.email||'',subject:item.subject||''});
+      sendJSON(res,{ok:true,order});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
   if(req.method==='POST'&&req.url==='/api/ignored-emails/clear'){
     saveIgnoredFor(userId, []);
     sendJSON(res,{ok:true});
+    return;
+  }
+
+  if(req.method==='GET'&&req.url==='/api/settings/import-rules'){
+    const user=findUserById(userId);
+    sendJSON(res,{ok:true,importRules:userImportRules(user)});
+    return;
+  }
+  if(req.method==='POST'&&req.url==='/api/settings/import-rules'){
+    try{
+      const incoming=JSON.parse(await readBody(req))||{};
+      const users=loadUsers();
+      const idx=users.findIndex(u=>u.id===userId);
+      if(idx<0){sendJSON(res,{ok:false,message:'Account not found'},404);return;}
+      users[idx].importRules={
+        mode:['collectibles','all'].includes(incoming.mode)?incoming.mode:'collectibles',
+        excludeStores:String(incoming.excludeStores||'').slice(0,500),
+        excludeSenders:String(incoming.excludeSenders||'').slice(0,500),
+      };
+      saveUsers(users);
+      sendJSON(res,{ok:true,importRules:userImportRules(users[idx])});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
+    return;
+  }
+
+  if(req.method==='GET'&&req.url==='/api/broadcast'){
+    const b=readJsonFile(BROADCAST_FILE, {});
+    const now=Date.now();
+    const active=b&&b.message&&b.enabled!==false&&(!b.expiresAt||new Date(b.expiresAt).getTime()>now);
+    sendJSON(res,{ok:true,broadcast:active?b:null});
+    return;
+  }
+
+  if(req.method==='POST'&&req.url==='/api/order-report'){
+    try{
+      const {orderId,message}=JSON.parse(await readBody(req));
+      const text=String(message||'').trim().slice(0,1500);
+      if(!text){sendJSON(res,{ok:false,message:'Write what looks wrong first.'},400);return;}
+      const me=findUserById(userId);
+      const order=loadOrdersFor(userId).find(o=>String(o.id)===String(orderId))||{};
+      const all=readJsonFile(REPORTS_FILE, []);
+      all.unshift({ts:new Date().toISOString(),userId,email:me?.email||'unknown',message:text,order:{id:order.id,name:order.name,store:order.store,status:order.status,source:order.source,emailId:order.emailId}});
+      if(all.length>500)all.length=500;
+      writeJsonFile(REPORTS_FILE, all);
+      appendActivity('order-report',{userId,email:me?.email||'',orderName:order.name||'',message:text.slice(0,120)});
+      sendJSON(res,{ok:true});
+    }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
   }
 

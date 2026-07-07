@@ -228,6 +228,7 @@
 
   <!-- BETA TRIAL PILL — days remaining + referral CTA (hidden for unlimited accounts) -->
   <div class="trial-pill" id="trial-pill" style="display:none;" onclick="copyReferralCode()" title="Click to copy your referral code"></div>
+  <div class="broadcast-banner" id="broadcast-banner" style="display:none;"></div>
 
   <!-- TRIAL EXPIRED LOCK -->
   <div class="trial-lock" id="trial-lock" style="display:none;">
@@ -726,6 +727,7 @@
     <div class="email-footer">
       <button class="ef-close" onclick="closeDetail()">Close</button>
       <button class="ef-copy" id="dt-view-email-btn" onclick="viewEmailFromDetail()"><i class="ti ti-mail" style="font-size:13px;"></i> View original email</button>
+      <button class="oact-btn" onclick="reportOrderIssue()"><i class="ti ti-message-report" style="font-size:13px;"></i> Report issue</button>
       <button class="oact-btn" onclick="addToInventoryFromDetail()" style="margin-left:auto;"><i class="ti ti-building-warehouse" style="font-size:13px;"></i> Add to inventory</button>
       <button class="oact-btn" onclick="editFromDetail()"><i class="ti ti-edit" style="font-size:13px;"></i> Edit</button>
       <button class="oact-btn" id="dt-archive-btn" onclick="toggleArchiveFromDetail()"><i class="ti ti-archive" style="font-size:13px;"></i> Archive</button>
@@ -793,6 +795,25 @@
         <div class="sm-row" style="flex-direction:column;align-items:stretch;gap:8px;">
           <textarea class="sm-input" id="sm-feedback" rows="3" placeholder="Describe the bug or idea…" style="resize:vertical;min-height:60px;"></textarea>
           <button class="sm-btn" style="align-self:flex-end;" onclick="sendFeedback()"><i class="ti ti-send" style="font-size:13px;"></i> Send feedback</button>
+        </div>
+      </div>
+
+      <div class="sm-section">
+        <div class="sm-section-title"><i class="ti ti-filter"></i>Import rules</div>
+        <div class="sm-row">
+          <div class="sm-row-info"><h4>Import mode</h4><p>Collectibles mode keeps food, grocery, travel, subscriptions, and weak matches out.</p></div>
+          <select class="sm-input" id="import-mode" onchange="saveImportRules()" style="width:170px;">
+            <option value="collectibles">Collectibles only</option>
+            <option value="all">All merchandise</option>
+          </select>
+        </div>
+        <div class="sm-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <div class="sm-row-info"><h4>Always skip stores</h4><p>Comma-separated names like DoorDash, Uber Eats, Instacart.</p></div>
+          <input class="sm-input" id="import-exclude-stores" placeholder="DoorDash, Uber Eats, Instacart" onchange="saveImportRules()"/>
+        </div>
+        <div class="sm-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+          <div class="sm-row-info"><h4>Always skip senders</h4><p>Comma-separated email/domain fragments.</p></div>
+          <input class="sm-input" id="import-exclude-senders" placeholder="ubereats.com, doordash.com" onchange="saveImportRules()"/>
         </div>
       </div>
 

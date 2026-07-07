@@ -102,9 +102,18 @@ td.num{text-align:right;}th.num{text-align:right;}
 .ctl.good{border-color:rgba(79,191,139,.35);color:var(--green);}
 .ctl.warn{border-color:rgba(224,167,66,.35);color:var(--amber);}
 .ctl.bad{border-color:rgba(242,102,94,.35);color:var(--red);}
+.admin-field{width:100%;background:var(--panel2);border:1px solid var(--brd);border-radius:9px;color:var(--txt);padding:9px 10px;font-size:12.5px;font-weight:650;outline:none;}
+.admin-field:focus{border-color:rgba(124,92,255,.65);box-shadow:0 0 0 3px rgba(124,92,255,.14);}
+.form-grid{display:grid;grid-template-columns:1fr 120px auto;gap:8px;align-items:end;}
+.mini-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.mini-list{display:flex;flex-direction:column;gap:8px;}
+.mini-item{background:var(--panel2);border:1px solid var(--brd);border-radius:12px;padding:10px 12px;color:var(--txt2);font-size:12px;line-height:1.45;}
+.mini-item b{display:block;color:var(--txt);font-size:12.5px;margin-bottom:2px;}
+.mini-muted{color:var(--txt3);font-size:11.5px;}
+.panel-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
 @media(max-width:960px){.hero,.grid-2{grid-template-columns:1fr;}.tiles{grid-template-columns:repeat(2,minmax(0,1fr));}.hero-title{font-size:28px;}}
 @media(max-width:760px){.giveaway{grid-template-columns:1fr;}}
-@media(max-width:620px){body{padding:18px 12px;}.topbar{align-items:flex-start;flex-direction:column;}.tiles{grid-template-columns:1fr;}.status-row{grid-template-columns:78px 1fr 36px;}.hero-card{padding:18px;}}
+@media(max-width:620px){body{padding:18px 12px;}.topbar{align-items:flex-start;flex-direction:column;}.tiles,.mini-grid{grid-template-columns:1fr;}.form-grid{grid-template-columns:1fr;}.status-row{grid-template-columns:78px 1fr 36px;}.hero-card{padding:18px;}}
 </style>
 </head>
 <body>
@@ -123,6 +132,62 @@ td.num{text-align:right;}th.num{text-align:right;}
 </div>
 <script>
 let latestStats=null;
+let operatorData={broadcast:{},activity:[],reports:[],giveaway:{history:[]},invites:[]};
+async function adminPost(url,body){
+  const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  const data=await res.json();
+  if(!data.ok)throw new Error(data.message||'Action failed');
+  return data;
+}
+async function saveBroadcast(enabled=true){
+  try{
+    const msg=document.getElementById('admin-broadcast-msg').value.trim();
+    const expiresAt=document.getElementById('admin-broadcast-exp').value;
+    await adminPost('/api/admin/broadcast',{message:msg,enabled,expiresAt});
+    await load();
+  }catch(e){alert(e.message||'Could not save broadcast.');}
+}
+async function createInviteCode(){
+  try{
+    await adminPost('/api/admin/invite-code',{
+      code:document.getElementById('invite-code').value.trim(),
+      maxUses:document.getElementById('invite-uses').value,
+      label:document.getElementById('invite-label').value.trim()
+    });
+    await load();
+  }catch(e){alert(e.message||'Could not create invite.');}
+}
+async function toggleInvite(code,active){
+  try{await adminPost('/api/admin/invite-code',{action:'toggle',code,active});await load();}
+  catch(e){alert(e.message||'Could not update invite.');}
+}
+async function saveGiveaway(){
+  try{
+    await adminPost('/api/admin/giveaway',{
+      action:'save',
+      title:document.getElementById('giveaway-title').value.trim(),
+      start:document.getElementById('giveaway-start').value,
+      end:document.getElementById('giveaway-end').value
+    });
+    await load();
+  }catch(e){alert(e.message||'Could not save giveaway.');}
+}
+async function pickGiveawayWinnerServer(){
+  try{
+    const data=await adminPost('/api/admin/giveaway',{action:'pick'});
+    const winner=(data.giveaway.history||[])[0];
+    alert(winner?'Winner: '+winner.email:'Winner picked.');
+    await load();
+  }catch(e){alert(e.message||'Could not pick a winner.');}
+}
+async function sendWeeklyRecaps(){
+  if(!confirm('Send weekly recap emails to users who turned on email alerts?'))return;
+  try{
+    const data=await adminPost('/api/admin/send-weekly-recaps',{});
+    alert('Sent '+data.sent+' weekly recap email'+(data.sent===1?'':'s')+'.');
+    await load();
+  }catch(e){alert(e.message||'Could not send recaps.');}
+}
 async function adminAction(userId,action,days){
   const labels={
     'extend-trial':'extend this trial',
@@ -186,6 +251,11 @@ async function load(){
     if(!data.ok){el.innerHTML='<div class="err">'+(data.message||'Could not load stats.')+'</div>';return;}
     const s=data.stats;
     latestStats=s;
+    try{
+      const opRes=await fetch('/api/admin/operator');
+      const opData=await opRes.json();
+      if(opData.ok)operatorData={broadcast:opData.broadcast||{},activity:opData.activity||[],reports:opData.reports||[],giveaway:opData.giveaway||{history:[]},invites:opData.invites||[]};
+    }catch(_){}
     if(!s.totalUsers){el.innerHTML='<div class="empty"><i class="ti ti-chart-bar"></i><p>No accounts yet — stats will appear once people sign up.</p></div>';return;}
     const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const attr=t=>esc(t).replace(/"/g,'&quot;');
@@ -197,6 +267,12 @@ async function load(){
     const users=s.perUser||[];
     const topOrders=[...users].sort((a,b)=>(b.ordersThisMonth-a.ordersThisMonth)||(b.orders-a.orders)).slice(0,10);
     const topReferrals=[...users].sort((a,b)=>b.referralCount-a.referralCount).slice(0,5);
+    const op=operatorData||{};
+    const giveaway=op.giveaway||{history:[]};
+    const broadcast=op.broadcast||{};
+    const reports=op.reports||[];
+    const activity=op.activity||[];
+    const invites=op.invites||[];
     const expiring=users.filter(u=>u.trialDaysLeft!=null&&u.trialDaysLeft<=10).length;
     const connectedRate=pct(s.totalAccounts,s.totalUsers);
     const statusTone={ordered:'#6eb3f7',shipped:'#e0a742',delivered:'#4fbf8b',cancelled:'#f2665e',preorder:'#9c8cec'};
@@ -237,6 +313,26 @@ async function load(){
           (topOrders.length?topOrders.map((u,i)=>'<div class="giveaway-card"><div class="rank">'+(i+1)+'</div><div class="giveaway-main"><b>'+esc(u.email)+'</b><span>'+u.ordersThisMonth+' orders this month · '+money(u.spend)+' tracked</span></div><div class="giveaway-score">'+u.orders+'<br><span style="font-size:10px;color:var(--txt3);font-weight:800;">orders</span></div></div>').join(''):'<div class="sub">No order activity yet.</div>')+
         '</div>'+
       '</div>'+
+      '<div class="section-lbl">Operator controls</div>'+
+      '<div class="mini-grid">'+
+        '<div class="panel"><h2>Broadcast</h2><textarea class="admin-field" id="admin-broadcast-msg" rows="4" placeholder="Message shown to logged-in users">'+esc(broadcast.message||'')+'</textarea><input class="admin-field" id="admin-broadcast-exp" type="date" value="'+attr(String(broadcast.expiresAt||'').slice(0,10))+'" style="margin-top:8px;"/><div class="panel-actions"><button class="ctl good" onclick="saveBroadcast(true)">Publish</button><button class="ctl bad" onclick="saveBroadcast(false)">Turn off</button></div><div class="mini-muted">'+(broadcast.enabled!==false&&broadcast.message?'Active':'No active message')+'</div></div>'+
+        '<div class="panel"><h2>Beta invites</h2><div class="form-grid"><input class="admin-field" id="invite-code" placeholder="Optional code"/><input class="admin-field" id="invite-uses" type="number" min="1" value="1"/><button class="ctl good" onclick="createInviteCode()">Create</button></div><input class="admin-field" id="invite-label" placeholder="Label, like Discord giveaway" style="margin-top:8px;"/><div class="mini-list" style="margin-top:10px;">'+
+          (invites.length?invites.slice(0,6).map(x=>'<div class="mini-item"><b>'+esc(x.code)+'</b><span class="mini-muted">'+(x.used||0)+' / '+(x.maxUses||1)+' used'+(x.label?' · '+esc(x.label):'')+'</span><div class="panel-actions"><button class="ctl '+(x.active!==false?'bad':'good')+'" onclick="toggleInvite(\''+attr(x.code)+'\','+(x.active===false?'true':'false')+')">'+(x.active!==false?'Disable':'Enable')+'</button></div></div>').join(''):'<div class="mini-muted">No invite codes created yet.</div>')+
+        '</div></div>'+
+        '<div class="panel"><h2>Weekly recaps</h2><div class="mini-item"><b>Email digest</b><span class="mini-muted">Sends to users who enabled ShipmentScope email alerts.</span></div><div class="panel-actions"><button class="ctl good" onclick="sendWeeklyRecaps()">Send now</button></div></div>'+
+      '</div>'+
+      '<div class="grid-2" style="margin-top:16px;">'+
+        '<div class="panel"><h2>Giveaway setup</h2><input class="admin-field" id="giveaway-title" value="'+attr(giveaway.title||'Monthly order giveaway')+'"/><div class="form-grid" style="grid-template-columns:1fr 1fr auto;margin-top:8px;"><input class="admin-field" id="giveaway-start" type="date" value="'+attr(giveaway.start||'')+'"/><input class="admin-field" id="giveaway-end" type="date" value="'+attr(giveaway.end||'')+'"/><button class="ctl good" onclick="saveGiveaway()">Save</button></div><div class="panel-actions"><button class="ctl good" onclick="pickGiveawayWinnerServer()">Pick + save winner</button></div><div class="mini-list">'+
+          ((giveaway.history||[]).length?(giveaway.history||[]).slice(0,5).map(w=>'<div class="mini-item"><b>'+esc(w.email)+'</b><span class="mini-muted">'+fdate(w.ts)+' · '+(w.ordersThisMonth||0)+' orders this month</span></div>').join(''):'<div class="mini-muted">No saved winners yet.</div>')+
+        '</div></div>'+
+        '<div class="panel"><h2>Order issue reports</h2><div class="mini-list">'+
+          (reports.length?reports.slice(0,6).map(r=>'<div class="mini-item"><b>'+esc(r.email||'Unknown')+'</b><span>'+esc(r.message||'')+'</span><div class="mini-muted">'+fdate(r.ts)+' · '+esc((r.order&&r.order.name)||'No order attached')+'</div></div>').join(''):'<div class="mini-muted">No reports yet.</div>')+
+        '</div></div>'+
+      '</div>'+
+      '<div class="section-lbl">Recent activity</div>'+
+      '<div class="panel"><div class="mini-list">'+
+        (activity.length?activity.slice(0,12).map(a=>'<div class="mini-item"><b>'+esc(a.type||'activity')+'</b><span class="mini-muted">'+fdate(a.ts)+(a.email?' · '+esc(a.email):'')+'</span></div>').join(''):'<div class="mini-muted">No activity yet.</div>')+
+      '</div></div>'+
       '<div class="section-lbl">Signals</div>'+
       '<div class="grid-2">'+
         '<div class="panel"><h2>Orders by status</h2><div class="status-bars">'+

@@ -718,6 +718,14 @@ html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(
 .sm-accent{width:28px;height:28px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:border-color .15s;}
 .sm-accent.sel{border-color:#fff;}
 
+.broadcast-banner{position:fixed;top:74px;left:250px;right:22px;z-index:120;align-items:center;gap:10px;background:linear-gradient(135deg,var(--accent-d),rgba(79,191,139,.12));border:1px solid var(--brd2);border-radius:12px;padding:11px 13px;color:var(--txt2);font-size:13px;font-weight:700;box-shadow:var(--glow-card);}
+.broadcast-banner i{color:var(--accent);font-size:16px;}
+.broadcast-banner span{flex:1;line-height:1.35;}
+.broadcast-banner button{border:0;background:rgba(255,255,255,.08);color:var(--txt2);border-radius:8px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.broadcast-banner button:hover{background:var(--accent-d);color:var(--txt);}
+.ignored-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+@media(max-width:820px){.broadcast-banner{left:12px;right:12px;top:64px;}}
+
 /* SYNC PAGE */
 .sync-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
 .sync-col{}

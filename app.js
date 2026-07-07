@@ -39,6 +39,7 @@ let charts=[],dashCharts=[],invCharts=[],currentEmailId=null,pollTimerId=null;
 let pendingChallenge=null; // in-progress email-2FA challenge token
 let notifyPrefs={email:false,ordered:true,preorder:true,shipped:true,delivered:true,cancelled:true,delayed:true};
 let ignoredEmails=[];
+let importRules={mode:'collectibles',excludeStores:'',excludeSenders:''};
 
 const $=id=>document.getElementById(id);
 // Quota-safe localStorage write. Order/inventory records can carry large
@@ -207,6 +208,24 @@ function runToastAction(){
   if(toastActionFn)toastActionFn();
   $('toast').classList.remove('show');
   toastActionFn=null;
+}
+async function loadBroadcast(){
+  const el=$('broadcast-banner');if(!el)return;
+  try{
+    const res=await fetch(API+'/api/broadcast');
+    const data=await res.json();
+    const b=data&&data.broadcast;
+    const key=b&&b.updatedAt?b.updatedAt+':'+b.message:'';
+    if(!b||!b.message||localStorage.getItem('ss_broadcast_dismissed')===key){el.style.display='none';return;}
+    el.dataset.dismissKey=key;
+    el.innerHTML='<i class="ti ti-speakerphone"></i><span>'+escHtml(b.message)+'</span><button onclick="dismissBroadcast()" aria-label="Dismiss"><i class="ti ti-x"></i></button>';
+    el.style.display='flex';
+  }catch(_){el.style.display='none';}
+}
+function dismissBroadcast(){
+  const el=$('broadcast-banner');if(!el)return;
+  if(el.dataset.dismissKey)localStorage.setItem('ss_broadcast_dismissed',el.dataset.dismissKey);
+  el.style.display='none';
 }
 
 // ── TAB SWITCHING ────────────────────────────────────────────────
@@ -1405,6 +1424,19 @@ function editFromDetail(){
   closeDetail();
   openM(id);
 }
+async function reportOrderIssue(){
+  const o=orders.find(x=>String(x.id)===String(currentDetailId));
+  if(!o){showToast('Open an order first','warn');return;}
+  const message=prompt('What looks wrong with this order?');
+  if(message===null)return;
+  if(!message.trim()){showToast('Write a quick note first','warn');return;}
+  try{
+    const res=await fetch(API+'/api/order-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:o.id,message})});
+    const data=await res.json();
+    if(!data.ok){showToast(data.message||'Could not send report','error');return;}
+    showToast('Order report sent');
+  }catch(_){showToast('Could not send report','error');}
+}
 
 // ── EMAILS PANE ───────────────────────────────────────────────────
 function eFilter(f){
@@ -1443,10 +1475,27 @@ function renderIgnoredEmails(){
   el.innerHTML='<div class="ignored-list">'+ignoredEmails.slice(0,8).map(x=>
     '<div class="ignored-item">'+
       '<div class="ignored-info"><b>'+escHtml(x.subject||'No subject')+'</b><span>'+escHtml(x.from||'')+(x.date?' · '+escHtml(x.date):'')+'</span></div>'+
-      '<span class="ignored-reason">'+escHtml(x.reason||'Skipped')+'</span>'+
+      '<div class="ignored-actions"><span class="ignored-reason">'+escHtml(x.reason||'Skipped')+'</span><button class="rb-btn" onclick="restoreIgnoredEmail(\''+escAttr(x.key||'')+'\')"><i class="ti ti-restore" style="font-size:13px;"></i> Restore</button></div>'+
     '</div>'
   ).join('')+'</div>'+
   '<button class="rb-btn" style="margin-top:10px;" onclick="clearIgnoredEmails()"><i class="ti ti-trash" style="font-size:13px;"></i> Clear review list</button>';
+}
+async function restoreIgnoredEmail(key){
+  if(!key)return;
+  try{
+    const res=await fetch(API+'/api/ignored-emails/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key})});
+    const data=await res.json();
+    if(!data.ok){showToast(data.message||'Could not restore email','error');return;}
+    if(data.order){
+      const existing=findExisting(data.order);
+      if(existing)Object.assign(existing,{...existing,...data.order,id:existing.id});
+      else orders.unshift({...data.order,id:nid++});
+      save();rOrders();rStats();safeRun(rEmails);safeRun(rTracking);
+    }
+    ignoredEmails=ignoredEmails.filter(x=>x.key!==key);
+    renderIgnoredEmails();
+    showToast('Email restored as an order');
+  }catch(_){showToast('Could not restore skipped email','error');}
 }
 async function clearIgnoredEmails(){
   if(!confirm('Clear the skipped-email review list? This does not change your orders.'))return;
@@ -2641,6 +2690,9 @@ function openSettings(){
   $('default-sort').value=localStorage.getItem('ss_defaultSort')||'date-desc';
   $('poll-interval').value=localStorage.getItem('ss_pollInterval')||'5';
   $('scan-days').value=localStorage.getItem('ss_scanDays')||'30';
+  if($('import-mode'))$('import-mode').value=importRules.mode||'collectibles';
+  if($('import-exclude-stores'))$('import-exclude-stores').value=importRules.excludeStores||'';
+  if($('import-exclude-senders'))$('import-exclude-senders').value=importRules.excludeSenders||'';
   // Beta trial + referral + Discord
   if($('sm-discord-webhook'))$('sm-discord-webhook').value=getDiscordWebhook();
   if($('sm-trial-info'))$('sm-trial-info').textContent=!trialState?'—':trialState.daysLeft==null?'Unlimited access (founder account)':trialState.expired?'Trial ended — invite friends to earn more days':trialState.daysLeft+' day'+(trialState.daysLeft===1?'':'s')+' left in your 10-week beta trial';
@@ -2682,6 +2734,26 @@ function toggleNotifyPref(key){
   if(key==='ordered')notifyPrefs.preorder=notifyPrefs.ordered;
   saveNotifyPrefs();
   showToast(key==='email'?(notifyPrefs.email?'ShipmentScope email alerts on':'ShipmentScope email alerts off'):'Notification preference updated');
+}
+async function loadImportRules(){
+  try{
+    const res=await fetch(API+'/api/settings/import-rules');
+    const data=await res.json();
+    if(data.ok&&data.importRules)importRules={...importRules,...data.importRules};
+  }catch(_){}
+}
+async function saveImportRules(){
+  importRules={
+    mode:$('import-mode')?.value||'collectibles',
+    excludeStores:$('import-exclude-stores')?.value||'',
+    excludeSenders:$('import-exclude-senders')?.value||'',
+  };
+  try{
+    const res=await fetch(API+'/api/settings/import-rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(importRules)});
+    const data=await res.json();
+    if(data.ok&&data.importRules)importRules={...importRules,...data.importRules};
+    showToast('Import rules saved');
+  }catch(_){showToast('Could not save import rules','warn');}
 }
 
 // ── DESKTOP NOTIFICATIONS ──────────────────────────────────────────
@@ -3348,6 +3420,8 @@ async function initAppAfterLogin(){
   const defaultSort=localStorage.getItem('ss_defaultSort');
   if(defaultSort&&$('sort-sel'))$('sort-sel').value=defaultSort;
   await loadNotifyPrefs();
+  await loadImportRules();
+  loadBroadcast().catch(()=>{});
   await loadAccountsFromServer();
   loadIgnoredEmails(true).catch(()=>{});
   switchEmailGuide('gmail');
