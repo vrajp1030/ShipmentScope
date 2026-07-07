@@ -173,7 +173,7 @@
   </div>
 
   <div class="landing-footer">
-    <div>© ShipmentScope · Beta · <a href="/privacy" target="_blank" class="footer-link">Privacy</a> · <a href="/terms" target="_blank" class="footer-link">Terms</a> · <a href="mailto:vrajp1030@gmail.com" class="footer-link">Contact</a></div>
+    <div>© ShipmentScope · Beta · <a href="/changelog" target="_blank" class="footer-link">Changelog</a> · <a href="/privacy" target="_blank" class="footer-link">Privacy</a> · <a href="/terms" target="_blank" class="footer-link">Terms</a> · <a href="mailto:vrajp1030@gmail.com" class="footer-link">Contact</a></div>
     <div class="footer-disclaimer">ShipmentScope is an independent service and is not affiliated with, endorsed by, or sponsored by Nintendo, The Pokémon Company, or any shipping carrier (UPS, USPS, FedEx, DHL, or Amazon). All product names, logos, and brands are the property of their respective owners.</div>
   </div>
 </div>
@@ -261,11 +261,13 @@
       <div class="live-badge" style="margin-right:4px;"><div class="live-dot"></div><span id="h-transit-lbl">in transit</span></div>
       <button class="hdr-btn primary" onclick="openM()"><i class="ti ti-plus"></i>Add order</button>
       <button class="hdr-btn" onclick="openCheckoutCard()"><i class="ti ti-photo"></i>Create checkout card</button>
+      <button class="hdr-icon-btn notif-btn" onclick="toggleNotificationCenter()" title="Notification Center" aria-label="Open notifications"><i class="ti ti-bell"></i><span class="notif-badge" id="notif-badge" style="display:none;">0</span></button>
       <button class="hdr-icon-btn" onclick="exportCSV()" title="Export orders" aria-label="Export orders"><i class="ti ti-download"></i></button>
       <button class="hdr-icon-btn" onclick="window.open(location.href,'_blank')" title="Open in new tab" aria-label="Open in new tab"><i class="ti ti-external-link"></i></button>
       <button class="hdr-icon-btn" onclick="openSettings()" title="Settings" aria-label="Open settings"><i class="ti ti-settings"></i></button>
     </div>
   </div>
+  <div class="notif-panel" id="notif-panel"></div>
 
   <!-- SIDEBAR -->
   <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleMobileSidebar()"></div>
@@ -805,6 +807,14 @@
           <select class="sm-input" id="import-mode" onchange="saveImportRules()" style="width:170px;">
             <option value="collectibles">Collectibles only</option>
             <option value="all">All merchandise</option>
+          </select>
+        </div>
+        <div class="sm-row">
+          <div class="sm-row-info"><h4>Import strictness</h4><p>Strict imports fewer uncertain emails. Loose catches more and leaves more for review.</p></div>
+          <select class="sm-input" id="import-strictness" onchange="saveImportRules()" style="width:170px;">
+            <option value="strict">Strict</option>
+            <option value="normal">Normal</option>
+            <option value="loose">Loose</option>
           </select>
         </div>
         <div class="sm-row" style="flex-direction:column;align-items:stretch;gap:8px;">

@@ -521,6 +521,7 @@ function userNotifyPrefs(user){ return {...DEFAULT_NOTIFY_PREFS, ...(user&&user.
 function publicNotifyPrefs(user){ return userNotifyPrefs(user); }
 const DEFAULT_IMPORT_RULES = {
   mode:'collectibles',
+  strictness:'normal',
   excludeStores:'',
   excludeSenders:'',
 };
@@ -534,6 +535,8 @@ function importRulesBlockOrder(rules, order, fromAddr){
   if(storeBlocks.some(s=>store.includes(s))) return 'Excluded store';
   if(senderBlocks.some(s=>from.includes(s))) return 'Excluded sender';
   if(r.mode==='collectibles' && !['packs','cards','graded','figures','accessories'].includes(order?.cat)) return 'Outside collectibles mode';
+  if(r.strictness==='strict' && !getAllowedStore(fromAddr, '') && (order?.confidence||0)<78 && !order?.tracking) return 'Strict import rules';
+  if(r.strictness==='normal' && (order?.confidence||0)<55) return 'Low confidence';
   return '';
 }
 
@@ -761,7 +764,8 @@ function computeAdminStats(){
       if(statusBreakdown[o.status]!=null) statusBreakdown[o.status]++;
       if((o.date||'').startsWith(monthPrefix)){ ordersThisMonth++; userMonth++; if(o.status!=='cancelled') valueThisMonth+=(o.price||0); }
     }
-    totalAccounts += loadAccountsFor(u.id).length;
+    const connectedAccounts = loadAccountsFor(u.id).length;
+    totalAccounts += connectedAccounts;
     const createdAt = new Date(u.createdAt).getTime();
     const lastLogin = u.lastLoginAt ? new Date(u.lastLoginAt).getTime() : 0;
     if(now-createdAt < 7*24*60*60*1000) signups7d++;
@@ -772,7 +776,8 @@ function computeAdminStats(){
       id:u.id, email:u.email, createdAt:u.createdAt, lastLoginAt:u.lastLoginAt||null,
       orders:orders.length, ordersThisMonth:userMonth,
       spend:Math.round(userSpend*100)/100, inventoryItems:inv.length,
-      trialDaysLeft:trialDaysLeft(u), referralCode:u.referralCode||null, referralCount:u.referralCount||0,
+      trialDaysLeft:trialDaysLeft(u), trialEndsAt:u.trialEndsAt||null, referralCode:u.referralCode||null, referralCount:u.referralCount||0,
+      connectedAccounts,
     });
   }
   perUser.sort((a,b)=>new Date(b.lastLoginAt||0)-new Date(a.lastLoginAt||0));
@@ -824,6 +829,7 @@ function adminUserAction({userId,email,action,days}){
   }
   user.adminUpdatedAt=nowIso;
   saveUsers(users);
+  appendActivity('admin-user-action',{email:user.email,userId:user.id,action,days:days??'',trialDaysLeft:trialDaysLeft(user),connectedAccounts:loadAccountsFor(user.id).length});
   return {email:user.email, ...trialInfo(user)};
 }
 
@@ -1418,6 +1424,33 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if(req.method==='GET'&&req.url==='/changelog'){
+    res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
+    res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Changelog — ShipmentScope</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Outfit:wght@400..600&display=swap" rel="stylesheet">
+<style>
+body{background:#05060f;color:#d8ecf8;font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;max-width:820px;margin:0 auto;padding:56px 24px 100px;line-height:1.65;}
+a{color:#b6d9fc;}h1{font-family:'Outfit',sans-serif;font-size:36px;font-weight:650;margin:0 0 6px;}p{color:#aeb9d0;font-size:14px}.release{background:#111423;border:1px solid rgba(186,215,247,.18);border-radius:16px;padding:20px 22px;margin:18px 0;}h2{font-size:18px;margin:0 0 10px;color:#fff}.tag{display:inline-block;background:rgba(124,92,255,.18);color:#b7a8ff;border:1px solid rgba(124,92,255,.32);border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;margin-bottom:12px;}li{color:#c7d3ea;font-size:14px;margin:6px 0;}
+</style></head><body>
+<a href="/">← Back to ShipmentScope</a>
+<h1>ShipmentScope Changelog</h1>
+<p>Recent beta updates and product changes.</p>
+<div class="release"><span class="tag">Latest</span><h2>Operator controls and smarter imports</h2><ul>
+<li>Added admin controls for broadcasts, invite codes, weekly recaps, giveaway winners, and trial management.</li>
+<li>Added order issue reports, support inbox visibility, and detailed admin activity logging.</li>
+<li>Added user import rules with strict, normal, and loose filtering modes.</li>
+<li>Added skipped-email restore so valid orders can be recovered from review.</li>
+</ul></div>
+<div class="release"><span class="tag">Beta</span><h2>Tracking and alerts polish</h2><ul>
+<li>Added ShipmentScope email alerts, Discord webhooks, and desktop notifications.</li>
+<li>Added cleaner dashboard/order views and automatic cleanup for delivered orders after 4 days.</li>
+<li>Improved filtering to avoid food, grocery, travel, subscription, and service receipts.</li>
+</ul></div>
+</body></html>`);
+    return;
+  }
+
   // Privacy policy — a real, standalone page (not the SPA), content accurate to
   // how this app actually stores/handles data. Linked from the landing page footer.
   if(req.method==='GET'&&req.url==='/privacy'){
@@ -1661,7 +1694,7 @@ li{margin-bottom:6px;}
         if(!codes.some(x=>x.code===code))codes.unshift({code,maxUses:Math.max(1,Math.min(1000,parseInt(body.maxUses)||1)),used:0,active:true,label:String(body.label||'').slice(0,80),createdAt:new Date().toISOString()});
       }
       saveInviteCodes(codes);
-      appendActivity('admin-invite-code',{action,code:body.code||''});
+      appendActivity('admin-invite-code',{action,code:String(body.code||'').toUpperCase(),maxUses:body.maxUses||'',active:body.active!==false,label:body.label||''});
       sendJSON(res,{ok:true,invites:codes});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
@@ -1686,7 +1719,7 @@ li{margin-bottom:6px;}
         giveaway.history.unshift({ts:new Date().toISOString(),title:giveaway.title||'Giveaway',email:winner.email,ordersThisMonth:winner.ordersThisMonth,totalOrders:winner.orders});
       }
       writeJsonFile(GIVEAWAY_FILE, giveaway);
-      appendActivity('admin-giveaway',{action:body.action||''});
+      appendActivity('admin-giveaway',{action:body.action||'',title:giveaway.title||'',winner:giveaway.history?.[0]?.email||''});
       sendJSON(res,{ok:true,giveaway});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
@@ -1694,7 +1727,7 @@ li{margin-bottom:6px;}
   if(req.method==='POST'&&req.url==='/api/admin/send-weekly-recaps'){
     if(!ADMIN_PASSWORD){sendJSON(res,{ok:false,message:'Admin panel disabled'},404);return;}
     if(!isAdminAuthorized(req)){sendJSON(res,{ok:false,message:'Not authorized'},401);return;}
-    try{const sent=await sendWeeklyRecaps();sendJSON(res,{ok:true,sent});}
+    try{const sent=await sendWeeklyRecaps();appendActivity('admin-weekly-recaps',{sent});sendJSON(res,{ok:true,sent});}
     catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;
   }
@@ -1951,6 +1984,7 @@ li{margin-bottom:6px;}
       all.unshift({ts:new Date().toISOString(),email:me?me.email:'unknown',message:text});
       if(all.length>500)all.length=500;
       fs.writeFileSync(fbFile,JSON.stringify(all,null,2));
+      appendActivity('feedback',{userId,email:me?me.email:'unknown',message:text.slice(0,120)});
       const hook=(process.env.DISCORD_FEEDBACK_WEBHOOK||'').trim();
       if(/^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+$/.test(hook)){
         fetch(hook,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({embeds:[{title:'🐛 Beta feedback',description:text.slice(0,1000),footer:{text:(me?me.email:'unknown')},color:0x7c5cff}]})}).catch(()=>{});
@@ -2016,10 +2050,12 @@ li{margin-bottom:6px;}
       if(idx<0){sendJSON(res,{ok:false,message:'Account not found'},404);return;}
       users[idx].importRules={
         mode:['collectibles','all'].includes(incoming.mode)?incoming.mode:'collectibles',
+        strictness:['strict','normal','loose'].includes(incoming.strictness)?incoming.strictness:'normal',
         excludeStores:String(incoming.excludeStores||'').slice(0,500),
         excludeSenders:String(incoming.excludeSenders||'').slice(0,500),
       };
       saveUsers(users);
+      appendActivity('import-rules',{userId,email:users[idx].email,mode:users[idx].importRules.mode,strictness:users[idx].importRules.strictness});
       sendJSON(res,{ok:true,importRules:userImportRules(users[idx])});
     }catch(e){sendJSON(res,{ok:false,message:e.message},400);}
     return;

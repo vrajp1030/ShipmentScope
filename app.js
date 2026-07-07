@@ -39,7 +39,7 @@ let charts=[],dashCharts=[],invCharts=[],currentEmailId=null,pollTimerId=null;
 let pendingChallenge=null; // in-progress email-2FA challenge token
 let notifyPrefs={email:false,ordered:true,preorder:true,shipped:true,delivered:true,cancelled:true,delayed:true};
 let ignoredEmails=[];
-let importRules={mode:'collectibles',excludeStores:'',excludeSenders:''};
+let importRules={mode:'collectibles',strictness:'normal',excludeStores:'',excludeSenders:''};
 
 const $=id=>document.getElementById(id);
 // Quota-safe localStorage write. Order/inventory records can carry large
@@ -109,6 +109,7 @@ async function loadOrdersFromServer(){
       localStorage.setItem('po_orders',JSON.stringify(orders));
       nid=Math.max(0,...orders.map(o=>o.id||0))+1;
       rOrders();rStats();
+      renderNotificationCenter();
       if(data.orders.length<localPruned.length) save();
     }else if(orders.length){
       // Server file is empty but we have local orders — push them up so they're saved durably
@@ -227,6 +228,33 @@ function dismissBroadcast(){
   if(el.dataset.dismissKey)localStorage.setItem('ss_broadcast_dismissed',el.dataset.dismissKey);
   el.style.display='none';
 }
+function notificationCenterItems(){
+  const items=getRecentActivity(7).map(e=>({type:'order',tone:SC[e.status]||'var(--accent)',icon:activityIcon(e.status),title:(e.order.name||'Order').slice(0,44),meta:activityVerb(e.status)+' · '+relativeTime(e.date),orderId:e.order.id}));
+  ignoredEmails.slice(0,3).forEach(x=>items.push({type:'skipped',tone:'var(--amber)',icon:'ti-filter-off',title:x.subject||'Skipped email',meta:(x.reason||'Skipped')+' · Review in Emails',tab:'emails'}));
+  loadSyncHistory().filter(h=>h.errors&&h.errors.length).slice(0,2).forEach(h=>items.push({type:'sync',tone:'var(--red)',icon:'ti-alert-triangle',title:'Sync needs attention',meta:h.errors[0],tab:'sync'}));
+  if(!imapAccounts.length)items.push({type:'setup',tone:'var(--accent)',icon:'ti-mail-plus',title:'Connect an email account',meta:'Start automatic order tracking',tab:'sync'});
+  return items.slice(0,12);
+}
+function renderNotificationCenter(){
+  const panel=$('notif-panel'), badge=$('notif-badge');
+  if(!panel&&!badge)return;
+  const items=notificationCenterItems();
+  const urgent=items.filter(x=>x.type==='skipped'||x.type==='sync'||x.type==='setup').length;
+  if(badge){badge.textContent=urgent>9?'9+':urgent;badge.style.display=urgent?'flex':'none';}
+  if(!panel)return;
+  panel.innerHTML='<div class="notif-panel-head"><div><b>Notification Center</b><span>'+items.length+' update'+(items.length===1?'':'s')+'</span></div><button onclick="toggleNotificationCenter(false)"><i class="ti ti-x"></i></button></div>'+
+    '<div class="notif-panel-list">'+(items.length?items.map((x,i)=>
+      '<div class="notif-center-item" style="animation-delay:'+(i*35)+'ms;" onclick="'+(x.orderId?'toggleNotificationCenter(false);openOrderDetail(\''+x.orderId+'\')':(x.tab?'toggleNotificationCenter(false);sw(\''+x.tab+'\')':''))+'">'+
+        '<div class="notif-ico" style="background:'+x.tone+'22;color:'+x.tone+';"><i class="ti '+x.icon+'"></i></div>'+
+        '<div class="notif-center-copy"><b>'+escHtml(x.title)+'</b><span>'+escHtml(x.meta||'')+'</span></div>'+
+      '</div>').join(''):'<div class="notif-empty">No notifications yet.</div>')+'</div>';
+}
+function toggleNotificationCenter(force){
+  const panel=$('notif-panel');if(!panel)return;
+  const show=force==null?!panel.classList.contains('open'):!!force;
+  if(show)renderNotificationCenter();
+  panel.classList.toggle('open',show);
+}
 
 // ── TAB SWITCHING ────────────────────────────────────────────────
 function toggleMobileSidebar(){
@@ -249,6 +277,7 @@ const TAB_HERO={
   insights:{title:'Insights',sub:'Your spending and delivery patterns, computed from your order history'},
 };
 function sw(tab){
+  toggleNotificationCenter(false);
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('on'));
   document.querySelector('[data-tab="'+tab+'"]').classList.add('on');
   document.querySelectorAll('.pane').forEach(el=>el.classList.remove('on'));
@@ -411,7 +440,7 @@ function rStats(){
   const z=$('cx-zone');
   if(cxList.length&&settings['cancel']){
     const names=cxList.slice(0,3).map(o=>'<strong style="cursor:pointer;text-decoration:underline dotted;" onclick="openEmail(&quot;'+escAttr(String(o.id))+'&quot;)">'+escHtml((o.name||'Order').slice(0,40))+'</strong>').join('<br>');
-    z.innerHTML='<div class="cx-banner"><i class="ti ti-alert-triangle"></i><div class="cx-txt">'+cxList.length+' cancelled order'+(cxList.length>1?'s':'')+':<br>'+names+(cxList.length>3?'<br>+' +(cxList.length-3)+' more':'')+'</div><button class="cx-close" onclick="this.parentElement.parentElement.innerHTML=\'\'" aria-label="Dismiss"><i class="ti ti-x"></i></button></div>';
+    z.innerHTML='<div class="cx-banner"><i class="ti ti-alert-triangle"></i><div class="cx-txt">'+cxList.length+' cancelled order'+(cxList.length>1?'s':'')+':<br>'+names+(cxList.length>3?'<br>+' +(cxList.length-3)+' more':'')+'</div><button class="cx-close" onclick="this.closest(&quot;#cx-zone&quot;).innerHTML=&quot;&quot;" aria-label="Dismiss"><i class="ti ti-x"></i></button></div>';
   }else z.innerHTML='';
 
 
@@ -625,7 +654,7 @@ function rDashboard(){
   if(storesEl){
     const tile=(store,domain,count,dim)=>
       '<div class="dash-store-tile'+(dim?' dim':'')+'" title="'+escAttr(store)+(count?' · '+count+' order'+(count>1?'s':''):'')+'">'+
-        (domain?'<img src="'+storeFaviconUrl(domain)+'" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'block\';"/><i class="ti ti-building-store fallback-ico"></i>':'<i class="ti ti-building-store fallback-ico" style="display:block;"></i>')+
+        (domain?'<img src="'+storeFaviconUrl(domain)+'" alt="" loading="lazy" onerror="this.style.display=&quot;none&quot;;this.nextElementSibling.style.display=&quot;block&quot;;"/><i class="ti ti-building-store fallback-ico"></i>':'<i class="ti ti-building-store fallback-ico" style="display:block;"></i>')+
         (count?'<span class="dash-store-count">'+count+'</span>':'')+
       '</div>';
     if(topStores.length){
@@ -860,14 +889,14 @@ function rOrders(){
     el.innerHTML=!orders.length
       ? (ordersLoading
         ? Array(3).fill('<div class="ocard skeleton-card"><div class="ocard-top"><div class="oico skel-block"></div><div class="ocard-info"><div class="skel-line" style="width:60%;height:13px;"></div><div class="skel-line" style="width:40%;height:10px;margin-top:8px;"></div></div><div class="skel-line" style="width:50px;height:20px;"></div></div></div>').join('')
-        : '<div class="empty-s empty-brand" style="grid-column:1/-1;"><img src="/assets/favicon.png" width="56" height="56" alt=""/><p>No orders yet</p><p style="font-size:13px;color:var(--txt3);margin-top:6px;">Open Sync to scan your inbox, or use Add order.</p><div style="display:flex;gap:10px;justify-content:center;margin-top:16px;"><button class="empty-cta primary" onclick="sw(\'sync\')"><i class="ti ti-refresh"></i>Sync emails</button><button class="empty-cta secondary" onclick="openM()"><i class="ti ti-plus"></i>Add order</button></div></div>')
+        : '<div class="empty-s empty-brand" style="grid-column:1/-1;"><img src="/assets/favicon.png" width="56" height="56" alt=""/><p>No orders yet</p><p style="font-size:13px;color:var(--txt3);margin-top:6px;">Open Sync to scan your inbox, or use Add order.</p><div style="display:flex;gap:10px;justify-content:center;margin-top:16px;"><button class="empty-cta primary" onclick="sw(&quot;sync&quot;)"><i class="ti ti-refresh"></i>Sync emails</button><button class="empty-cta secondary" onclick="openM()"><i class="ti ti-plus"></i>Add order</button></div></div>')
       : '<div class="empty-s" style="grid-column:1/-1;"><i class="ti ti-filter"></i><p>No orders match these filters</p><p style="font-size:12px;color:var(--txt3);margin-top:6px;">You have '+orders.length+' order'+(orders.length!==1?'s':'')+' total — try <span style="color:var(--accent);cursor:pointer;text-decoration:underline;" onclick="clearFilters()">clearing the filters</span>.</p></div>';
     return;
   }
 
   // Crash-proof: one bad order can never blank the whole list.
   el.innerHTML=filtered.map((o,i)=>{ try{ return orderCardHTML(o,i); }catch(e){ console.error('card render error',o,e); return ''; } }).join('')+
-    '<div class="list-end" style="grid-column:1/-1;">You\'ve reached the end! 🚀</div>';
+    '<div class="list-end" style="grid-column:1/-1;">You have reached the end! 🚀</div>';
 }
 
 function carrierClass(c){c=(c||'').toLowerCase();if(c.includes('ups'))return'c-ups';if(c.includes('fedex'))return'c-fedex';if(c.includes('usps'))return'c-usps';if(c.includes('dhl'))return'c-dhl';return'';}
@@ -875,7 +904,7 @@ function orderCardHTML(o,i){
   const cat=CATS[o.cat]||CATS.other;
   const delBar=deliveryProgress(o);
   const trackHtml=o.trackingUrl?'<a class="track-link '+carrierClass(o.carrier)+'" href="'+o.trackingUrl+'" target="_blank" onclick="event.stopPropagation()"><i class="ti ti-truck" style="font-size:11px;"></i>'+escHtml(o.carrier||'Track')+'</a>':'';
-  const oicoInner=isSafeImageUrl(o.image)?'<img src="'+escAttr(o.image)+'" alt="" loading="lazy" onerror="this.parentElement.innerHTML=\''+cat.e.replace(/'/g,"\\'")+'\';"/>':cat.e;
+  const oicoInner=isSafeImageUrl(o.image)?'<img src="'+escAttr(o.image)+'" alt="" loading="lazy" onerror="this.remove()"/>':cat.e;
   // Entrance stagger caps at the first 10 cards so long lists don't leave late cards waiting.
   const delay=Math.min(i||0,10)*18;
   return'<div class="ocard'+(o.status==='cancelled'?' cx':'')+'" style="animation-delay:'+delay+'ms;" onclick="openOrderDetail(\''+o.id+'\')">'+
@@ -965,7 +994,7 @@ async function refreshAllPrices(){
 // The item's thumbnail: its own image if set, else its category glyph.
 function invItemIcon(x,cls){
   cls=cls||'inv-item-ico';
-  if(isSafeImageUrl(x.image))return '<div class="'+cls+'"><img src="'+escAttr(x.image)+'" alt="" loading="lazy" onerror="this.parentElement.innerHTML=\''+(INV_CATS[x.cat]||INV_CATS.other).e.replace(/'/g,"\\'")+'\';"/></div>';
+  if(isSafeImageUrl(x.image))return '<div class="'+cls+'"><img src="'+escAttr(x.image)+'" alt="" loading="lazy" onerror="this.remove()"/></div>';
   return '<div class="'+cls+'">'+(INV_CATS[x.cat]||INV_CATS.other).e+'</div>';
 }
 // Condition badge tint: graded→amber, sealed→blue, everything else→neutral/purple.
@@ -1069,7 +1098,7 @@ function rInventory(){
   const pageItems=list.slice(start,start+INV_PER_PAGE);
   $('inv-table').innerHTML=pageItems.length
     ? pageItems.map(invRowHTML).join('')
-    : '<div class="inv-empty"><i class="ti ti-package-off"></i><p>'+(inventory.length?'No items match these filters':'No inventory yet — click <b>Add item</b>, or add one from a delivered order.')+'</p></div>';
+    : '<div class="inv-empty"><i class="ti ti-package-off"></i><p>'+(inventory.length?'No items match these filters':'No inventory yet')+'</p><div style="display:flex;gap:10px;justify-content:center;margin-top:12px;"><button class="empty-cta primary" onclick="openInvModal()"><i class="ti ti-plus"></i>Add item</button><button class="empty-cta secondary" onclick="sw(\'orders\')"><i class="ti ti-package"></i>Use an order</button></div></div>';
   renderInvPager(list.length,start,pageItems.length,totalPages);
 
   // ── Right rail ──
@@ -1447,7 +1476,7 @@ function eFilter(f){
 function rEmails(){
   const list=orders.filter(o=>(o.emailHtml||o.emailText)&&(efil==='all'||o.status===efil)).sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
   const el=$('email-list');
-  if(!list.length){el.innerHTML='<div class="empty-s" style="grid-column:1/-1;"><i class="ti ti-mail"></i><p>No emails'+(efil!=='all'?' for '+SL[efil]:'')+'</p></div>';return;}
+  if(!list.length){el.innerHTML='<div class="empty-s empty-brand" style="grid-column:1/-1;"><img src="/assets/favicon.png" width="50" height="50" alt=""/><p>No emails'+(efil!=='all'?' for '+SL[efil]:'')+'</p><p style="font-size:12px;color:var(--txt3);margin-top:6px;">Connect an inbox and run a scan to review imported and skipped messages.</p><div style="display:flex;gap:10px;justify-content:center;margin-top:14px;"><button class="empty-cta primary" onclick="sw(\'sync\')"><i class="ti ti-refresh"></i>Open Sync</button></div></div>';return;}
   el.innerHTML=list.map(o=>{ try{
     const cat=CATS[o.cat]||CATS.other;
     return'<div class="ocard" onclick="openEmail(\''+o.id+'\')">'+
@@ -1471,7 +1500,7 @@ async function loadIgnoredEmails(force=false){
 }
 function renderIgnoredEmails(){
   const el=$('ignored-email-list');if(!el)return;
-  if(!ignoredEmails.length){el.innerHTML='<div class="notif-empty">No skipped emails recorded yet. Run a scan and this will show what ShipmentScope filtered out.</div>';return;}
+  if(!ignoredEmails.length){el.innerHTML='<div class="notif-empty">No skipped emails recorded yet. Run a scan and this will show what ShipmentScope filtered out.</div>';renderNotificationCenter();return;}
   el.innerHTML='<div class="ignored-list">'+ignoredEmails.slice(0,8).map(x=>
     '<div class="ignored-item">'+
       '<div class="ignored-info"><b>'+escHtml(x.subject||'No subject')+'</b><span>'+escHtml(x.from||'')+(x.date?' · '+escHtml(x.date):'')+'</span></div>'+
@@ -1479,6 +1508,7 @@ function renderIgnoredEmails(){
     '</div>'
   ).join('')+'</div>'+
   '<button class="rb-btn" style="margin-top:10px;" onclick="clearIgnoredEmails()"><i class="ti ti-trash" style="font-size:13px;"></i> Clear review list</button>';
+  renderNotificationCenter();
 }
 async function restoreIgnoredEmail(key){
   if(!key)return;
@@ -1500,7 +1530,7 @@ async function restoreIgnoredEmail(key){
 async function clearIgnoredEmails(){
   if(!confirm('Clear the skipped-email review list? This does not change your orders.'))return;
   try{await fetch(API+'/api/ignored-emails/clear',{method:'POST'});}catch(_){}
-  ignoredEmails=[];renderIgnoredEmails();showToast('Skipped-email list cleared');
+  ignoredEmails=[];renderIgnoredEmails();renderNotificationCenter();showToast('Skipped-email list cleared');
 }
 
 // ── PACKAGE TRACKING ─────────────────────────────────────────────
@@ -1530,7 +1560,7 @@ function rTracking(){
   });
 
   const el=$('trk-list');
-  if(!list.length){el.innerHTML='<div class="empty-s"><i class="ti ti-truck-delivery"></i><p>No orders to track yet</p><p style="font-size:12px;color:var(--txt3);margin-top:6px;">Sync your inbox or add an order to see it here.</p></div>';return;}
+  if(!list.length){el.innerHTML='<div class="empty-s empty-brand"><img src="/assets/favicon.png" width="50" height="50" alt=""/><p>No tracking activity yet</p><p style="font-size:12px;color:var(--txt3);margin-top:6px;">Orders with shipment or delivery signals will appear here.</p><div style="display:flex;gap:10px;justify-content:center;margin-top:14px;"><button class="empty-cta primary" onclick="sw(\'sync\')"><i class="ti ti-refresh"></i>Scan inbox</button><button class="empty-cta secondary" onclick="openM()"><i class="ti ti-plus"></i>Add order</button></div></div>';return;}
 
   el.innerHTML=list.map(o=>{ try{
     const cat=CATS[o.cat]||CATS.other;
@@ -1544,7 +1574,7 @@ function rTracking(){
     const trackHtml=o.trackingUrl
       ? '<a class="track-link '+carrierClass(o.carrier)+'" href="'+o.trackingUrl+'" target="_blank" onclick="event.stopPropagation()"><i class="ti ti-truck" style="font-size:11px;"></i>'+escHtml(o.carrier||'Track')+'</a>'
       : '<span style="font-size:11px;color:var(--txt3);font-weight:500;">No tracking #</span>';
-    const trkIcoInner=isSafeImageUrl(o.image)?'<img src="'+escAttr(o.image)+'" alt="" loading="lazy" onerror="this.parentElement.innerHTML=\''+cat.e.replace(/'/g,"\\'")+'\';"/>':cat.e;
+    const trkIcoInner=isSafeImageUrl(o.image)?'<img src="'+escAttr(o.image)+'" alt="" loading="lazy" onerror="this.remove()"/>':cat.e;
     return '<div class="trk-row"'+(hasEmail?' onclick="openEmail(\''+o.id+'\')" style="cursor:pointer;"':'')+'>'+
       '<div class="trk-ico '+cat.c+'">'+trkIcoInner+'</div>'+
       '<div class="trk-info"><div class="trk-name">'+escHtml(o.name||'Unnamed order')+'</div>'+
@@ -1782,6 +1812,7 @@ function renderDashboardActionCards(){
       {label:'Create account',done:!!currentUserEmail,action:null},
       {label:'Connect email',done:imapAccounts.length>0,action:"sw('sync');showAddAccountForm();"},
       {label:'Scan inbox',done:hist.length>0,action:"sw('sync');"},
+      {label:'Review skipped',done:ignoredEmails.length===0&&hist.length>0,action:"sw('emails');"},
       {label:'Import first order',done:orders.length>0,action:"sw('orders');"},
       {label:'Turn on alerts',done:!!(settings.desktop||notifyPrefs.email||getDiscordWebhook()),action:"openSettings();"},
     ];
@@ -1789,7 +1820,9 @@ function renderDashboardActionCards(){
     if(!incomplete)onboard.style.display='none';
     else{
       onboard.style.display='block';
-      onboard.innerHTML='<div class="onboard-head"><div><h3>Finish setting up ShipmentScope</h3><p>Connect your inbox, scan for merchandise orders, then start tracking.</p></div><button class="rb-btn" onclick="'+(incomplete?.action||"sw('sync')")+'"><i class="ti ti-arrow-right" style="font-size:13px;"></i> Continue</button></div>'+
+      const done=steps.filter(s=>s.done).length;
+      onboard.innerHTML='<div class="onboard-head"><div><h3>Finish setting up ShipmentScope</h3><p>'+done+' of '+steps.length+' complete. Connect, scan, review, then turn on alerts.</p></div><button class="rb-btn" onclick="'+(incomplete?.action||"sw('sync')")+'"><i class="ti ti-arrow-right" style="font-size:13px;"></i> Continue</button></div>'+
+        '<div class="onboard-progress"><span style="width:'+(done/steps.length*100)+'%;"></span></div>'+
         '<div class="onboard-steps">'+steps.map(s=>'<div class="onboard-step '+(s.done?'done':'')+'"><i class="ti '+(s.done?'ti-circle-check':'ti-circle')+'"></i><span>'+s.label+'</span></div>').join('')+'</div>';
     }
   }
@@ -1828,6 +1861,7 @@ async function saveImap(){
   imapAccounts=imapAccounts.filter(a=>a.email.toLowerCase()!==e.toLowerCase());
   imapAccounts.push(acct);
   renderAccountList();
+  renderNotificationCenter();
   $('imap-fw').style.display='none';$('scan-btn').disabled=false;
   showToast('Account connected: '+e);
   fetch(API+'/api/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host:h,port,email:e,password:p})}).then(r=>r.json()).then(d=>{if(!d.ok)showToast('Connected, but the test failed: '+d.message,'warn');}).catch(()=>{});
@@ -1866,7 +1900,7 @@ async function runScan(){
   const newOnes=marked.filter(f=>!f.isDup);
   const dups=marked.filter(f=>f.isDup);
   pushSyncHistory({ts:now,accountLabel:imapAccounts.length===1?imapAccounts[0].email:imapAccounts.length+' accounts',found:found.length,added:newOnes.length,errors});
-  renderAccountList();renderSyncHistory();
+  renderAccountList();renderSyncHistory();renderNotificationCenter();
   window._det=newOnes;
   const errorHtml=errors.length?'<div style="background:rgba(255,95,87,.12);border:1px solid rgba(255,95,87,.25);border-radius:9px;padding:12px;font-size:13px;color:var(--red);font-weight:600;margin-bottom:10px;">'+errors.map(escHtml).join('<br>')+'</div>':'';
   if(!newOnes.length&&!dups.length){$('det-zone').innerHTML=errorHtml+'<div style="color:var(--txt3);font-size:14px;font-weight:700;padding:14px 0;">No new order emails found in the last '+scanDays+' days.</div>';return;}
@@ -2003,37 +2037,37 @@ function importAll(){
 const DEFAULT_INSIGHT_WIDGETS=['activity-trend','status-donut','on-time-gauge','monthly-chart'];
 const INSIGHT_WIDGETS={
   'monthly-chart':{label:'Monthly spend trend',
-    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'monthly-chart\')" title="Remove" aria-label="Remove monthly spend chart widget"><i class="ti ti-x"></i></button><h3>'+ctx.monthRangeLbl+' <span>'+ctx.monthYearLbl+' spend</span></h3><div style="height:200px;position:relative;"><canvas id="monthChart"></canvas></div></div>',
+    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(&quot;monthly-chart&quot;)" title="Remove" aria-label="Remove monthly spend chart widget"><i class="ti ti-x"></i></button><h3>'+ctx.monthRangeLbl+' <span>'+ctx.monthYearLbl+' spend</span></h3><div style="height:200px;position:relative;"><canvas id="monthChart"></canvas></div></div>',
     after:ctx=>{const mc=document.getElementById('monthChart');if(mc)charts.push(new Chart(mc,{type:'bar',data:{labels:ctx.monthlyData.map(d=>d.label),datasets:[{label:'$',data:ctx.monthlyData.map(d=>d.total),backgroundColor:ctx.monthlyData.map(d=>d.color),borderRadius:6,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.raw.toLocaleString()}}},scales:{x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#c3c3cc',font:{weight:'700',size:11}}},y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8a8a94',font:{size:11},callback:v=>'$'+v.toLocaleString()},border:{display:false}}}}}));}
   },
   'category-chart':{label:'Spend by category',
-    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'category-chart\')" title="Remove" aria-label="Remove spend by category chart widget"><i class="ti ti-x"></i></button><h3>Spend by category <span>all time</span></h3><div style="height:200px;position:relative;"><canvas id="catChart"></canvas></div></div>',
+    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(&quot;category-chart&quot;)" title="Remove" aria-label="Remove spend by category chart widget"><i class="ti ti-x"></i></button><h3>Spend by category <span>all time</span></h3><div style="height:200px;position:relative;"><canvas id="catChart"></canvas></div></div>',
     after:ctx=>{const catData=Object.entries(CATS).filter(([k])=>ctx.byCat[k]).sort((a,b)=>(ctx.byCat[b[0]]||0)-(ctx.byCat[a[0]]||0));const cc=document.getElementById('catChart');if(cc)charts.push(new Chart(cc,{type:'bar',data:{labels:catData.map(([k])=>k.charAt(0).toUpperCase()+k.slice(1)),datasets:[{label:'$',data:catData.map(([k])=>Math.round(ctx.catSpend[k]||0)),backgroundColor:catData.map(([k])=>CAT_COLORS[k]||'#8a8a94'),borderRadius:6,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.raw.toLocaleString()}}},scales:{x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#c3c3cc',font:{weight:'700',size:11}}},y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8a8a94',font:{size:11},callback:v=>'$'+v.toLocaleString()},border:{display:false}}}}}));}
   },
   'status-bars':{label:'Orders by status',
     html:ctx=>{const bars=Object.entries({ordered:'Ordered',shipped:'Shipped',delivered:'Delivered',cancelled:'Cancelled',preorder:'Pre-order'}).map(([k,v])=>{const c=ctx.byStatus[k]||0,pct=ctx.t?Math.round((c/ctx.t)*100):0;return'<div class="bar-row"><div class="bar-lbl"><span>'+v+'</span><span style="color:'+SC[k]+'">'+c+'</span></div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+SC[k]+'"></div></div></div>';}).join('');
-      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'status-bars\')" title="Remove" aria-label="Remove orders by status widget"><i class="ti ti-x"></i></button><h3>Orders by status <span>'+ctx.t+' total</span></h3>'+bars+'</div>';}
+      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(&quot;status-bars&quot;)" title="Remove" aria-label="Remove orders by status widget"><i class="ti ti-x"></i></button><h3>Orders by status <span>'+ctx.t+' total</span></h3>'+bars+'</div>';}
   },
   'top-stores':{label:'Top stores by spend',
     html:ctx=>{const rows=ctx.topStores.map(([name,amt],i)=>'<div class="store-row"><div class="store-rank">#'+(i+1)+'</div><div class="store-ico ci-packs">'+STORE_ICO_DEFAULT+'</div><div class="store-info"><div class="store-name">'+escHtml(name)+'</div><div class="store-cnt">'+(ctx.byStore[name]||0)+' orders</div></div><div class="store-amt">$'+ctx.fmt(amt)+'</div></div>').join('')||'<div style="font-size:12px;color:var(--txt3);">No spend yet</div>';
-      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'top-stores\')" title="Remove" aria-label="Remove top stores widget"><i class="ti ti-x"></i></button><h3>Top stores <span>by spend</span></h3>'+rows+'</div>';}
+      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(&quot;top-stores&quot;)" title="Remove" aria-label="Remove top stores widget"><i class="ti ti-x"></i></button><h3>Top stores <span>by spend</span></h3>'+rows+'</div>';}
   },
   'category-cards':{label:'Category breakdown',
     html:ctx=>{const cards=Object.entries(CATS).filter(([k])=>ctx.byCat[k]).sort((a,b)=>(ctx.byCat[b[0]]||0)-(ctx.byCat[a[0]]||0)).map(([k,v])=>'<div class="cat-ins"><div class="cat-ins-top"><div class="cat-ins-ico ci-'+k+'">'+v.e+'</div><div><div class="cat-ins-name">'+k.charAt(0).toUpperCase()+k.slice(1)+'</div><div class="cat-ins-cnt">'+(ctx.byCat[k]||0)+' orders</div></div></div><div class="cat-ins-val">$'+ctx.fmt(ctx.catSpend[k]||0)+'</div><div class="cat-ins-sub">total spent</div></div>').join('');
-      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'category-cards\')" title="Remove" aria-label="Remove category breakdown widget"><i class="ti ti-x"></i></button><h3>Category breakdown</h3><div class="cat-grid2">'+cards+'</div></div>';}
+      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(&quot;category-cards&quot;)" title="Remove" aria-label="Remove category breakdown widget"><i class="ti ti-x"></i></button><h3>Category breakdown</h3><div class="cat-grid2">'+cards+'</div></div>';}
   },
   'budget':{label:'Monthly budget tracker',
     html:ctx=>{
       const budget=parseInt(localStorage.getItem('po_budget')||'0');
-      if(!budget)return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'budget\')" title="Remove" aria-label="Remove monthly budget widget"><i class="ti ti-x"></i></button><h3>Monthly budget</h3><p style="font-size:12px;color:var(--txt3);">Set a monthly budget in Settings to track it here.</p></div>';
+      if(!budget)return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(&quot;budget&quot;)" title="Remove" aria-label="Remove monthly budget widget"><i class="ti ti-x"></i></button><h3>Monthly budget</h3><p style="font-size:12px;color:var(--txt3);">Set a monthly budget in Settings to track it here.</p></div>';
       const pct=Math.min(100,Math.round((ctx.thisMonthSpend/budget)*100));
-      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'budget\')" title="Remove" aria-label="Remove monthly budget widget"><i class="ti ti-x"></i></button><h3>Monthly budget <span>'+new Date().toLocaleDateString('en-US',{month:'long'})+'</span></h3><div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="font-size:14px;font-weight:600;color:var(--txt2);">$'+ctx.fmt(ctx.thisMonthSpend)+' spent</span><span style="font-size:14px;font-weight:600;color:var(--txt3);">$'+ctx.fmt(budget)+' budget</span></div><div class="bar-track" style="height:10px;"><div class="bar-fill" style="width:'+pct+'%;background:'+(ctx.thisMonthSpend>budget?'var(--red)':'var(--accent)')+'"></div></div>'+(ctx.thisMonthSpend>budget?'<div style="font-size:12px;color:var(--red);font-weight:600;margin-top:6px;">Over budget by $'+ctx.fmt(ctx.thisMonthSpend-budget)+'</div>':'<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px;">$'+ctx.fmt(budget-ctx.thisMonthSpend)+' remaining</div>')+'</div>';}
+      return '<div class="chart-card"><button class="widget-remove" onclick="removeWidget(&quot;budget&quot;)" title="Remove" aria-label="Remove monthly budget widget"><i class="ti ti-x"></i></button><h3>Monthly budget <span>'+new Date().toLocaleDateString('en-US',{month:'long'})+'</span></h3><div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="font-size:14px;font-weight:600;color:var(--txt2);">$'+ctx.fmt(ctx.thisMonthSpend)+' spent</span><span style="font-size:14px;font-weight:600;color:var(--txt3);">$'+ctx.fmt(budget)+' budget</span></div><div class="bar-track" style="height:10px;"><div class="bar-fill" style="width:'+pct+'%;background:'+(ctx.thisMonthSpend>budget?'var(--red)':'var(--accent)')+'"></div></div>'+(ctx.thisMonthSpend>budget?'<div style="font-size:12px;color:var(--red);font-weight:600;margin-top:6px;">Over budget by $'+ctx.fmt(ctx.thisMonthSpend-budget)+'</div>':'<div style="font-size:12px;color:var(--green);font-weight:600;margin-top:6px;">$'+ctx.fmt(budget-ctx.thisMonthSpend)+' remaining</div>')+'</div>';}
   },
   'trophy':{label:'Top category highlight',
-    html:ctx=>'<div class="trophy"><button class="widget-remove" onclick="removeWidget(\'trophy\')" title="Remove" aria-label="Remove top category widget"><i class="ti ti-x"></i></button><div class="trophy-ico"><i class="ti ti-trophy" style="font-size:22px;color:var(--amber);"></i></div><div class="trophy-info"><h4>'+ctx.topCat[0].charAt(0).toUpperCase()+ctx.topCat[0].slice(1)+'</h4><p>Top category</p></div><div class="trophy-num">'+ctx.topCat[1]+'</div></div>'
+    html:ctx=>'<div class="trophy"><button class="widget-remove" onclick="removeWidget(&quot;trophy&quot;)" title="Remove" aria-label="Remove top category widget"><i class="ti ti-x"></i></button><div class="trophy-ico"><i class="ti ti-trophy" style="font-size:22px;color:var(--amber);"></i></div><div class="trophy-info"><h4>'+ctx.topCat[0].charAt(0).toUpperCase()+ctx.topCat[0].slice(1)+'</h4><p>Top category</p></div><div class="trophy-num">'+ctx.topCat[1]+'</div></div>'
   },
   'activity-trend':{label:'Order activity trend',
-    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'activity-trend\')" title="Remove" aria-label="Remove order activity trend widget"><i class="ti ti-x"></i></button><h3>Order activity <span>last 8 weeks</span></h3><div style="height:200px;position:relative;"><canvas id="activityChart"></canvas></div></div>',
+    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(&quot;activity-trend&quot;)" title="Remove" aria-label="Remove order activity trend widget"><i class="ti ti-x"></i></button><h3>Order activity <span>last 8 weeks</span></h3><div style="height:200px;position:relative;"><canvas id="activityChart"></canvas></div></div>',
     after:ctx=>{
       const ac=document.getElementById('activityChart');if(!ac)return;
       const gctx=ac.getContext('2d');
@@ -2052,7 +2086,7 @@ const INSIGHT_WIDGETS={
     }
   },
   'status-donut':{label:'Orders by status (donut)',
-    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'status-donut\')" title="Remove" aria-label="Remove orders by status donut widget"><i class="ti ti-x"></i></button><h3>Orders by status <span>'+ctx.t+' total</span></h3><div style="height:200px;position:relative;"><canvas id="statusDonutChart"></canvas></div></div>',
+    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(&quot;status-donut&quot;)" title="Remove" aria-label="Remove orders by status donut widget"><i class="ti ti-x"></i></button><h3>Orders by status <span>'+ctx.t+' total</span></h3><div style="height:200px;position:relative;"><canvas id="statusDonutChart"></canvas></div></div>',
     after:ctx=>{
       const labels=Object.keys(SL).filter(k=>ctx.byStatus[k]);
       const dc=document.getElementById('statusDonutChart');if(!dc)return;
@@ -2067,7 +2101,7 @@ const INSIGHT_WIDGETS={
     }
   },
   'on-time-gauge':{label:'On-time delivery gauge',
-    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(\'on-time-gauge\')" title="Remove" aria-label="Remove on-time delivery gauge widget"><i class="ti ti-x"></i></button><h3>On-time delivery</h3><div style="height:200px;position:relative;display:flex;align-items:center;justify-content:center;"><div style="width:150px;height:150px;position:relative;"><canvas id="insightsGaugeChart"></canvas></div></div></div>',
+    html:ctx=>'<div class="chart-card"><button class="widget-remove" onclick="removeWidget(&quot;on-time-gauge&quot;)" title="Remove" aria-label="Remove on-time delivery gauge widget"><i class="ti ti-x"></i></button><h3>On-time delivery</h3><div style="height:200px;position:relative;display:flex;align-items:center;justify-content:center;"><div style="width:150px;height:150px;position:relative;"><canvas id="insightsGaugeChart"></canvas></div></div></div>',
     after:ctx=>{ renderGaugeChart('insightsGaugeChart',ctx.onTimePct,'#7c5cff','rgba(255,255,255,0.08)',charts); }
   },
 };
@@ -2165,7 +2199,7 @@ function computeActivityTrend(){
 }
 async function rInsights(){
   const t=orders.length;
-  if(!t){$('ins-inner').innerHTML='<div class="empty-s empty-brand"><img src="/assets/favicon.png" width="56" height="56" alt=""/><p>Add orders to see insights</p></div>';return;}
+  if(!t){$('ins-inner').innerHTML='<div class="empty-s empty-brand"><img src="/assets/favicon.png" width="56" height="56" alt=""/><p>Add orders to see insights</p><p style="font-size:12px;color:var(--txt3);margin-top:6px;">Sync your inbox or add a manual order to unlock charts.</p><div style="display:flex;gap:10px;justify-content:center;margin-top:14px;"><button class="empty-cta primary" onclick="sw(\'sync\')"><i class="ti ti-refresh"></i>Sync emails</button><button class="empty-cta secondary" onclick="openM()"><i class="ti ti-plus"></i>Add order</button></div></div>';return;}
   const fmt=n=>Math.round(n||0).toLocaleString();
   const spend=orders.filter(o=>o.status!=='cancelled').reduce((s,o)=>s+(o.price||0),0);
   const cxSpend=orders.filter(o=>o.status==='cancelled').reduce((s,o)=>s+(o.price||0),0);
@@ -2691,6 +2725,7 @@ function openSettings(){
   $('poll-interval').value=localStorage.getItem('ss_pollInterval')||'5';
   $('scan-days').value=localStorage.getItem('ss_scanDays')||'30';
   if($('import-mode'))$('import-mode').value=importRules.mode||'collectibles';
+  if($('import-strictness'))$('import-strictness').value=importRules.strictness||'normal';
   if($('import-exclude-stores'))$('import-exclude-stores').value=importRules.excludeStores||'';
   if($('import-exclude-senders'))$('import-exclude-senders').value=importRules.excludeSenders||'';
   // Beta trial + referral + Discord
@@ -2745,6 +2780,7 @@ async function loadImportRules(){
 async function saveImportRules(){
   importRules={
     mode:$('import-mode')?.value||'collectibles',
+    strictness:$('import-strictness')?.value||'normal',
     excludeStores:$('import-exclude-stores')?.value||'',
     excludeSenders:$('import-exclude-senders')?.value||'',
   };
@@ -2758,7 +2794,7 @@ async function saveImportRules(){
 
 // ── DESKTOP NOTIFICATIONS ──────────────────────────────────────────
 function toggleDesktopNotifications(){
-  if(!('Notification' in window)){showToast('Desktop notifications aren\'t supported in this browser','warn');return;}
+  if(!('Notification' in window)){showToast('Desktop notifications are not supported in this browser','warn');return;}
   if(!settings['desktop']){
     Notification.requestPermission().then(perm=>{
       if(perm==='granted'){
@@ -2936,7 +2972,7 @@ async function pollNewOrders(){
         applied.push(d);
       });
       if(count>0){
-        save();rOrders();rStats();
+        save();rOrders();rStats();renderNotificationCenter();
         if(settings['new-order'])showToast(''+count+' new order'+(count>1?'s':'')+' arrived!');
         const note=notificationCopyForOrders(applied);
         if(note[0]!=='Order cancelled'||settings['cancel'])notifyDesktop(note[0],note[1]);
@@ -2966,6 +3002,7 @@ document.addEventListener('click',(e)=>{
   else if(e.target.id==='inv-modal')closeInvModal();
   else if(e.target.id==='del-acct-wrap')closeDeleteAccount();
   else if(e.target.id==='card-wrap')closeCheckoutCard();
+  else if($('notif-panel')&&$('notif-panel').classList.contains('open')&&!e.target.closest('.notif-panel')&&!e.target.closest('.notif-btn'))toggleNotificationCenter(false);
 });
 function focusGlobalSearch(){sw('orders');const s=$('srch');if(s){s.focus();s.select();}}
 
@@ -3424,6 +3461,7 @@ async function initAppAfterLogin(){
   loadBroadcast().catch(()=>{});
   await loadAccountsFromServer();
   loadIgnoredEmails(true).catch(()=>{});
+  renderNotificationCenter();
   switchEmailGuide('gmail');
   const whEl=$('webhook-url-display');
   if(whEl)whEl.textContent=location.origin+'/webhook/'+currentWebhookToken;

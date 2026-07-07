@@ -133,6 +133,9 @@ td.num{text-align:right;}th.num{text-align:right;}
 <script>
 let latestStats=null;
 let operatorData={broadcast:{},activity:[],reports:[],giveaway:{history:[]},invites:[]};
+let adminUserQuery='', adminUserFilter='all';
+function setAdminUserSearch(v){adminUserQuery=String(v||'').toLowerCase();load();}
+function setAdminUserFilter(v){adminUserFilter=v||'all';load();}
 async function adminPost(url,body){
   const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
   const data=await res.json();
@@ -265,6 +268,17 @@ async function load(){
     const initials=email=>String(email||'?').slice(0,1);
     const trialPill=d=>d==null?'<span class="pill inf">∞ unlimited</span>':d<=0?'<span class="pill bad">expired</span>':d<=10?'<span class="pill warn">'+d+'d left</span>':'<span class="pill ok">'+d+'d left</span>';
     const users=s.perUser||[];
+    const userMatches=u=>{
+      const q=adminUserQuery.trim();
+      if(q && !String(u.email||'').toLowerCase().includes(q))return false;
+      if(adminUserFilter==='expired')return u.trialDaysLeft!=null&&u.trialDaysLeft<=0;
+      if(adminUserFilter==='expiring')return u.trialDaysLeft!=null&&u.trialDaysLeft>0&&u.trialDaysLeft<=10;
+      if(adminUserFilter==='connected')return (u.connectedAccounts||0)>0;
+      if(adminUserFilter==='no-orders')return (u.orders||0)===0;
+      if(adminUserFilter==='top-orders')return (u.ordersThisMonth||0)>0;
+      return true;
+    };
+    const visibleUsers=users.filter(userMatches).sort((a,b)=>adminUserFilter==='top-orders'?(b.ordersThisMonth||0)-(a.ordersThisMonth||0):0);
     const topOrders=[...users].sort((a,b)=>(b.ordersThisMonth-a.ordersThisMonth)||(b.orders-a.orders)).slice(0,10);
     const topReferrals=[...users].sort((a,b)=>b.referralCount-a.referralCount).slice(0,5);
     const op=operatorData||{};
@@ -273,6 +287,19 @@ async function load(){
     const reports=op.reports||[];
     const activity=op.activity||[];
     const invites=op.invites||[];
+    const supportItems=[
+      ...reports.map(r=>({kind:'Order report',email:r.email,ts:r.ts,message:r.message,meta:r.order&&r.order.name})),
+      ...(s.feedback||[]).map(f=>({kind:'Feedback',email:f.email,ts:f.ts,message:f.message,meta:'General app feedback'})),
+    ].sort((a,b)=>new Date(b.ts||0)-new Date(a.ts||0)).slice(0,10);
+    const activityLine=a=>[
+      a.email||'',
+      a.action?'Action: '+a.action:'',
+      a.days!==''&&a.days!=null?'Days: '+a.days:'',
+      a.code?'Code: '+a.code:'',
+      a.sent!=null?'Sent: '+a.sent:'',
+      a.winner?'Winner: '+a.winner:'',
+      a.message?'Note: '+String(a.message).slice(0,80):'',
+    ].filter(Boolean).join(' · ');
     const expiring=users.filter(u=>u.trialDaysLeft!=null&&u.trialDaysLeft<=10).length;
     const connectedRate=pct(s.totalAccounts,s.totalUsers);
     const statusTone={ordered:'#6eb3f7',shipped:'#e0a742',delivered:'#4fbf8b',cancelled:'#f2665e',preorder:'#9c8cec'};
@@ -325,13 +352,13 @@ async function load(){
         '<div class="panel"><h2>Giveaway setup</h2><input class="admin-field" id="giveaway-title" value="'+attr(giveaway.title||'Monthly order giveaway')+'"/><div class="form-grid" style="grid-template-columns:1fr 1fr auto;margin-top:8px;"><input class="admin-field" id="giveaway-start" type="date" value="'+attr(giveaway.start||'')+'"/><input class="admin-field" id="giveaway-end" type="date" value="'+attr(giveaway.end||'')+'"/><button class="ctl good" onclick="saveGiveaway()">Save</button></div><div class="panel-actions"><button class="ctl good" onclick="pickGiveawayWinnerServer()">Pick + save winner</button></div><div class="mini-list">'+
           ((giveaway.history||[]).length?(giveaway.history||[]).slice(0,5).map(w=>'<div class="mini-item"><b>'+esc(w.email)+'</b><span class="mini-muted">'+fdate(w.ts)+' · '+(w.ordersThisMonth||0)+' orders this month</span></div>').join(''):'<div class="mini-muted">No saved winners yet.</div>')+
         '</div></div>'+
-        '<div class="panel"><h2>Order issue reports</h2><div class="mini-list">'+
-          (reports.length?reports.slice(0,6).map(r=>'<div class="mini-item"><b>'+esc(r.email||'Unknown')+'</b><span>'+esc(r.message||'')+'</span><div class="mini-muted">'+fdate(r.ts)+' · '+esc((r.order&&r.order.name)||'No order attached')+'</div></div>').join(''):'<div class="mini-muted">No reports yet.</div>')+
+        '<div class="panel"><h2>Support inbox</h2><div class="mini-list">'+
+          (supportItems.length?supportItems.map(r=>'<div class="mini-item"><b>'+esc(r.kind)+' · '+esc(r.email||'Unknown')+'</b><span>'+esc(r.message||'')+'</span><div class="mini-muted">'+fdate(r.ts)+' · '+esc(r.meta||'')+'</div></div>').join(''):'<div class="mini-muted">No support messages yet.</div>')+
         '</div></div>'+
       '</div>'+
       '<div class="section-lbl">Recent activity</div>'+
       '<div class="panel"><div class="mini-list">'+
-        (activity.length?activity.slice(0,12).map(a=>'<div class="mini-item"><b>'+esc(a.type||'activity')+'</b><span class="mini-muted">'+fdate(a.ts)+(a.email?' · '+esc(a.email):'')+'</span></div>').join(''):'<div class="mini-muted">No activity yet.</div>')+
+        (activity.length?activity.slice(0,12).map(a=>'<div class="mini-item"><b>'+esc(a.type||'activity')+'</b><span class="mini-muted">'+fdate(a.ts)+(activityLine(a)?' · '+esc(activityLine(a)):'')+'</span></div>').join(''):'<div class="mini-muted">No activity yet.</div>')+
       '</div></div>'+
       '<div class="section-lbl">Signals</div>'+
       '<div class="grid-2">'+
@@ -343,8 +370,11 @@ async function load(){
         '</div>'+
       '</div>'+
       '<div class="section-lbl">Users</div>'+
+      '<div class="panel" style="margin-bottom:12px;"><div class="form-grid" style="grid-template-columns:1fr 190px auto;"><input class="admin-field" placeholder="Search users by email" value="'+attr(adminUserQuery)+'" oninput="setAdminUserSearch(this.value)"/><select class="admin-field" onchange="setAdminUserFilter(this.value)">'+
+        ['all','expired','expiring','connected','no-orders','top-orders'].map(v=>'<option value="'+v+'" '+(adminUserFilter===v?'selected':'')+'>'+({all:'All users',expired:'Expired trials',expiring:'Expiring trials',connected:'Connected email', 'no-orders':'No orders', 'top-orders':'Leaderboard users'}[v])+'</option>').join('')+
+      '</select><div class="mini-muted" style="align-self:center;">'+visibleUsers.length+' shown</div></div></div>'+
       '<div class="tbl-scroll"><table><tr><th>Email</th><th>Joined</th><th>Last login</th><th class="num">Orders</th><th class="num">This month</th><th class="num">Spend</th><th class="num">Inventory</th><th>Trial</th><th class="num">Referrals</th><th>Controls</th></tr>'+
-        users.map(u=>'<tr><td>'+esc(u.email)+'</td><td>'+fdate(u.createdAt)+'</td><td>'+fdate(u.lastLoginAt)+'</td><td class="num">'+u.orders+'</td><td class="num">'+u.ordersThisMonth+'</td><td class="num">'+money(u.spend)+'</td><td class="num">'+u.inventoryItems+'</td><td>'+trialPill(u.trialDaysLeft)+'</td><td class="num">'+u.referralCount+'</td><td class="controls"><div class="ctl-row">'+
+        visibleUsers.map(u=>'<tr><td>'+esc(u.email)+'</td><td>'+fdate(u.createdAt)+'</td><td>'+fdate(u.lastLoginAt)+'</td><td class="num">'+u.orders+'</td><td class="num">'+u.ordersThisMonth+'</td><td class="num">'+money(u.spend)+'</td><td class="num">'+u.inventoryItems+'</td><td>'+trialPill(u.trialDaysLeft)+'</td><td class="num">'+u.referralCount+'</td><td class="controls"><div class="ctl-row">'+
           '<button class="ctl good" onclick="adminAction(\''+attr(u.id)+'\',\'extend-trial\',10)">+10d</button>'+
           '<button class="ctl good" onclick="adminAction(\''+attr(u.id)+'\',\'extend-trial\',30)">+30d</button>'+
           '<button class="ctl" onclick="adminAction(\''+attr(u.id)+'\',\'set-trial-days\',70)">Set days</button>'+
